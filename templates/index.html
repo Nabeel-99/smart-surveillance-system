@@ -1,0 +1,1435 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Smart Surveillance System</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;400;600;700&family=Barlow+Condensed:wght@400;600;700&display=swap"
+      rel="stylesheet" />
+    <style>
+      /* ── RESET & BASE ── */
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      :root {
+        --bg: #080b0f;
+        --bg2: #0d1117;
+        --bg3: #111820;
+        --border: #1e2d3d;
+        --border2: #243040;
+        --accent: #00d4ff;
+        --accent2: #0099cc;
+        --danger: #ff2d2d;
+        --amber: #ffaa00;
+        --green: #00e676;
+        --text: #c9d8e8;
+        --text-dim: #5a7a96;
+        --text-faint: #2a3d50;
+        --mono: "Share Tech Mono", monospace;
+        --sans: "Barlow", sans-serif;
+        --cond: "Barlow Condensed", sans-serif;
+        --scan-speed: 4s;
+      }
+
+      html,
+      body {
+        height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--sans);
+        overflow-x: hidden;
+      }
+
+      /* ── SCANLINE OVERLAY ── */
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background: repeating-linear-gradient(
+          0deg,
+          transparent,
+          transparent 2px,
+          rgba(0, 212, 255, 0.015) 2px,
+          rgba(0, 212, 255, 0.015) 4px
+        );
+        pointer-events: none;
+        z-index: 9999;
+      }
+
+      /* ── GRID NOISE BG ── */
+      body::after {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background-image:
+          linear-gradient(rgba(0, 212, 255, 0.03) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(0, 212, 255, 0.03) 1px, transparent 1px);
+        background-size: 40px 40px;
+        pointer-events: none;
+        z-index: 0;
+      }
+
+      /* ── TOPBAR ── */
+      .topbar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 52px;
+        background: rgba(8, 11, 15, 0.95);
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        padding: 0 24px;
+        gap: 20px;
+        z-index: 1000;
+        backdrop-filter: blur(8px);
+      }
+
+      .topbar-logo {
+        font-family: var(--cond);
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: 3px;
+        color: var(--accent);
+        text-transform: uppercase;
+      }
+      .topbar-logo span {
+        color: var(--text-dim);
+      }
+
+      .topbar-sep {
+        width: 1px;
+        height: 24px;
+        background: var(--border2);
+      }
+
+      .topbar-tag {
+        font-family: var(--mono);
+        font-size: 10px;
+        color: var(--text-dim);
+        letter-spacing: 1px;
+      }
+
+      .topbar-right {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--text-faint);
+        box-shadow: none;
+        transition: all 0.3s;
+      }
+      .status-dot.live {
+        background: var(--danger);
+        box-shadow: 0 0 8px var(--danger);
+        animation: pulse-dot 1s infinite;
+      }
+      .status-dot.ready {
+        background: var(--green);
+        box-shadow: 0 0 8px var(--green);
+      }
+
+      @keyframes pulse-dot {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.3;
+        }
+      }
+
+      .status-label {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--text-dim);
+        letter-spacing: 1px;
+      }
+
+      .clock {
+        font-family: var(--mono);
+        font-size: 13px;
+        color: var(--accent);
+        letter-spacing: 2px;
+      }
+
+      /* ── LAYOUT ── */
+      .workspace {
+        padding-top: 52px;
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: 300px 1fr 280px;
+        grid-template-rows: 1fr;
+        position: relative;
+        z-index: 1;
+      }
+
+      /* ── LEFT PANEL ── */
+      .panel-left {
+        border-right: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 52px);
+        overflow: scroll;
+      }
+
+      .panel-section {
+        border-bottom: 1px solid var(--border);
+        padding: 16px;
+      }
+
+      .panel-label {
+        font-family: var(--mono);
+        font-size: 10px;
+        letter-spacing: 2px;
+        color: var(--text-dim);
+        text-transform: uppercase;
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .panel-label::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: var(--border2);
+      }
+
+      /* upload zone */
+      .upload-zone {
+        border: 1px dashed var(--border2);
+        border-radius: 4px;
+        padding: 28px 16px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.2s;
+        position: relative;
+        overflow: hidden;
+      }
+      .upload-zone:hover,
+      .upload-zone.drag {
+        border-color: var(--accent);
+        background: rgba(0, 212, 255, 0.04);
+      }
+      .upload-zone input {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        cursor: pointer;
+        width: 100%;
+        height: 100%;
+      }
+      .upload-icon {
+        font-size: 28px;
+        margin-bottom: 8px;
+        opacity: 0.5;
+      }
+      .upload-text {
+        font-family: var(--cond);
+        font-size: 13px;
+        color: var(--text-dim);
+        letter-spacing: 1px;
+      }
+      .upload-sub {
+        font-family: var(--mono);
+        font-size: 10px;
+        color: var(--text-faint);
+        margin-top: 4px;
+      }
+      .upload-filename {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--accent);
+        margin-top: 8px;
+        word-break: break-all;
+      }
+
+      /* line draw instruction */
+      .draw-instruction {
+        background: rgba(0, 212, 255, 0.05);
+        border: 1px solid rgba(0, 212, 255, 0.15);
+        border-radius: 4px;
+        padding: 10px 12px;
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--accent);
+        line-height: 1.6;
+        margin-bottom: 12px;
+      }
+
+      .line-status {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--text-faint);
+        padding: 8px 10px;
+        background: var(--bg2);
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        transition: all 0.3s;
+      }
+      .line-status.set {
+        color: var(--green);
+        border-color: rgba(0, 230, 118, 0.3);
+        background: rgba(0, 230, 118, 0.05);
+      }
+
+      /* btn */
+      .btn {
+        display: block;
+        width: 100%;
+        padding: 12px;
+        font-family: var(--cond);
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        border: 1px solid var(--border2);
+        background: transparent;
+        color: var(--text-dim);
+        cursor: pointer;
+        border-radius: 3px;
+        transition: all 0.2s;
+      }
+      .btn:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+      }
+      .btn-primary {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      .btn-primary:not(:disabled):hover {
+        background: var(--accent);
+        color: var(--bg);
+        box-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
+      }
+      .btn-danger {
+        border-color: var(--danger);
+        color: var(--danger);
+      }
+      .btn-danger:not(:disabled):hover {
+        background: var(--danger);
+        color: #fff;
+        box-shadow: 0 0 20px rgba(255, 45, 45, 0.3);
+      }
+
+      /* stats */
+      .stat-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+      .stat-box {
+        background: var(--bg2);
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        padding: 10px 12px;
+        text-align: center;
+      }
+      .stat-val {
+        font-family: var(--mono);
+        font-size: 22px;
+        color: var(--accent);
+        display: block;
+        line-height: 1;
+        margin-bottom: 4px;
+      }
+      .stat-val.danger {
+        color: var(--danger);
+      }
+      .stat-val.amber {
+        color: var(--amber);
+      }
+      .stat-label {
+        font-family: var(--mono);
+        font-size: 9px;
+        color: var(--text-faint);
+        letter-spacing: 1px;
+        text-transform: uppercase;
+      }
+
+      /* download btns */
+      .dl-btn {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 9px 12px;
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        background: var(--bg2);
+        color: var(--text-dim);
+        font-family: var(--mono);
+        font-size: 11px;
+        cursor: pointer;
+        text-decoration: none;
+        transition: all 0.2s;
+        margin-bottom: 8px;
+        letter-spacing: 0.5px;
+      }
+      .dl-btn:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      .dl-btn svg {
+        flex-shrink: 0;
+      }
+
+      /* ── CENTER ── */
+      .panel-center {
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 52px);
+        overflow: hidden;
+      }
+
+      .feed-header {
+        border-bottom: 1px solid var(--border);
+        padding: 10px 20px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        flex-shrink: 0;
+      }
+
+      .feed-title {
+        font-family: var(--cond);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 3px;
+        color: var(--text-dim);
+        text-transform: uppercase;
+      }
+
+      .corner-tag {
+        font-family: var(--mono);
+        font-size: 9px;
+        color: var(--text-faint);
+        letter-spacing: 1px;
+        margin-left: auto;
+      }
+
+      /* canvas / feed area */
+      .feed-area {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        overflow: hidden;
+        background: radial-gradient(
+          ellipse at center,
+          rgba(0, 212, 255, 0.02) 0%,
+          transparent 70%
+        );
+      }
+
+      /* corner brackets */
+      .feed-area::before,
+      .feed-area::after {
+        content: "";
+        position: absolute;
+        width: 20px;
+        height: 20px;
+        border-color: var(--accent);
+        border-style: solid;
+        opacity: 0.4;
+        pointer-events: none;
+      }
+      .feed-area::before {
+        top: 12px;
+        left: 12px;
+        border-width: 2px 0 0 2px;
+      }
+      .feed-area::after {
+        bottom: 12px;
+        right: 12px;
+        border-width: 0 2px 2px 0;
+      }
+
+      #feed-canvas {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        display: block;
+      }
+
+      /* draw canvas overlay */
+      #draw-canvas {
+        position: absolute;
+        cursor: crosshair;
+        display: none;
+      }
+
+      /* empty state */
+      .feed-empty {
+        text-align: center;
+        pointer-events: none;
+      }
+      .feed-empty-icon {
+        font-size: 48px;
+        opacity: 0.08;
+        margin-bottom: 12px;
+      }
+      .feed-empty-text {
+        font-family: var(--cond);
+        font-size: 13px;
+        letter-spacing: 3px;
+        color: var(--text-faint);
+        text-transform: uppercase;
+      }
+
+      /* progress bar */
+      .progress-bar-wrap {
+        flex-shrink: 0;
+        border-top: 1px solid var(--border);
+        padding: 10px 20px;
+        display: none;
+      }
+      .progress-bar-wrap.visible {
+        display: block;
+      }
+
+      .progress-meta {
+        display: flex;
+        justify-content: space-between;
+        font-family: var(--mono);
+        font-size: 10px;
+        color: var(--text-dim);
+        margin-bottom: 6px;
+      }
+
+      .progress-track {
+        width: 100%;
+        height: 3px;
+        background: var(--border);
+        border-radius: 2px;
+        overflow: hidden;
+      }
+      .progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, var(--accent2), var(--accent));
+        border-radius: 2px;
+        width: 0%;
+        transition: width 0.3s;
+        box-shadow: 0 0 8px var(--accent);
+      }
+
+      /* ── RIGHT PANEL — violations ── */
+      .panel-right {
+        border-left: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 52px);
+        overflow: hidden;
+      }
+
+      .violations-header {
+        border-bottom: 1px solid var(--border);
+        padding: 10px 16px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-shrink: 0;
+      }
+
+      .viol-count-badge {
+        font-family: var(--mono);
+        font-size: 11px;
+        background: var(--danger);
+        color: #fff;
+        padding: 2px 7px;
+        border-radius: 2px;
+        min-width: 24px;
+        text-align: center;
+      }
+
+      .violations-scroll {
+        flex: 1;
+        overflow-y: auto;
+        padding: 12px;
+      }
+      .violations-scroll::-webkit-scrollbar {
+        width: 3px;
+      }
+      .violations-scroll::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .violations-scroll::-webkit-scrollbar-thumb {
+        background: var(--border2);
+        border-radius: 2px;
+      }
+
+      .viol-empty {
+        padding: 40px 16px;
+        text-align: center;
+        font-family: var(--mono);
+        font-size: 10px;
+        color: var(--text-faint);
+        letter-spacing: 1px;
+        line-height: 2;
+      }
+
+      .viol-card {
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        overflow: hidden;
+        margin-bottom: 10px;
+        animation: slide-in 0.3s ease;
+        background: var(--bg2);
+      }
+      .viol-card.new-flash {
+        border-color: var(--danger);
+        box-shadow: 0 0 12px rgba(255, 45, 45, 0.3);
+        animation:
+          slide-in 0.3s ease,
+          flash-border 0.6s ease 0.3s;
+      }
+
+      @keyframes slide-in {
+        from {
+          opacity: 0;
+          transform: translateX(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(0);
+        }
+      }
+      @keyframes flash-border {
+        0%,
+        100% {
+          border-color: var(--danger);
+        }
+        50% {
+          border-color: var(--amber);
+        }
+      }
+
+      .viol-img {
+        width: 100%;
+        height: 100px;
+        object-fit: cover;
+        display: block;
+        filter: saturate(0.8) contrast(1.1);
+      }
+
+      .viol-info {
+        padding: 8px 10px;
+      }
+      .viol-plate {
+        font-family: var(--mono);
+        font-size: 14px;
+        color: var(--accent);
+        letter-spacing: 2px;
+        margin-bottom: 4px;
+      }
+      .viol-plate.unread {
+        color: var(--text-dim);
+      }
+      .viol-meta {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .viol-tag {
+        font-family: var(--mono);
+        font-size: 9px;
+        letter-spacing: 1px;
+        padding: 2px 6px;
+        border-radius: 2px;
+        text-transform: uppercase;
+      }
+      .viol-tag.type {
+        background: rgba(0, 212, 255, 0.1);
+        color: var(--accent);
+      }
+      .viol-tag.time {
+        background: rgba(255, 170, 0, 0.1);
+        color: var(--amber);
+      }
+      .viol-tag.frame {
+        background: rgba(30, 45, 61, 0.8);
+        color: var(--text-dim);
+      }
+
+      /* ── ALERT BANNER ── */
+      .alert-banner {
+        position: fixed;
+        top: 62px;
+        right: 16px;
+        background: var(--danger);
+        color: #fff;
+        font-family: var(--cond);
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 2px;
+        padding: 10px 20px;
+        border-radius: 3px;
+        z-index: 2000;
+        display: none;
+        animation: banner-in 0.3s ease;
+        box-shadow: 0 0 24px rgba(255, 45, 45, 0.5);
+      }
+      @keyframes banner-in {
+        from {
+          opacity: 0;
+          transform: translateY(-10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      /* ── MODAL - results ── */
+      .modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(8, 11, 15, 0.9);
+        z-index: 3000;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        backdrop-filter: blur(4px);
+      }
+      .modal-overlay.open {
+        display: flex;
+      }
+
+      .modal {
+        background: var(--bg2);
+        border: 1px solid var(--border2);
+        border-radius: 6px;
+        width: 600px;
+        max-height: 80vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 0 60px rgba(0, 212, 255, 0.1);
+      }
+
+      .modal-header {
+        padding: 16px 20px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .modal-title {
+        font-family: var(--cond);
+        font-size: 16px;
+        font-weight: 700;
+        letter-spacing: 2px;
+        color: var(--accent);
+        text-transform: uppercase;
+      }
+      .modal-close {
+        margin-left: auto;
+        background: none;
+        border: none;
+        color: var(--text-dim);
+        cursor: pointer;
+        font-size: 18px;
+        padding: 4px 8px;
+      }
+      .modal-close:hover {
+        color: var(--text);
+      }
+
+      .modal-body {
+        padding: 16px 20px;
+        overflow-y: auto;
+        flex: 1;
+      }
+
+      .results-summary {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+        margin-bottom: 20px;
+      }
+
+      .modal-dl-row {
+        display: flex;
+        gap: 10px;
+      }
+
+      /* table */
+      .viol-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-family: var(--mono);
+        font-size: 11px;
+      }
+      .viol-table th {
+        text-align: left;
+        padding: 8px 10px;
+        color: var(--text-dim);
+        letter-spacing: 1px;
+        font-size: 9px;
+        text-transform: uppercase;
+        border-bottom: 1px solid var(--border);
+      }
+      .viol-table td {
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--border);
+        color: var(--text);
+        vertical-align: middle;
+      }
+      .viol-table tr:hover td {
+        background: rgba(0, 212, 255, 0.03);
+      }
+      .plate-cell {
+        color: var(--accent);
+        letter-spacing: 2px;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- TOPBAR -->
+    <header class="topbar">
+      <div class="topbar-logo">SMART SURVEILLANCE SYSTEM</div>
+      <div class="topbar-sep"></div>
+      <div class="topbar-tag">TRAFFIC VIOLATION</div>
+      <div class="topbar-right">
+        <div class="status-dot" id="statusDot"></div>
+        <div class="status-label" id="statusLabel">STANDBY</div>
+        <div class="topbar-sep"></div>
+        <div class="clock" id="clock">--:--:--</div>
+      </div>
+    </header>
+
+    <!-- ALERT BANNER -->
+    <div class="alert-banner" id="alertBanner">⚠ VIOLATION DETECTED</div>
+
+    <!-- MAIN WORKSPACE -->
+    <div class="workspace">
+      <!-- LEFT PANEL -->
+      <aside class="panel-left">
+        <!-- Upload -->
+        <div class="panel-section">
+          <div class="panel-label">Input Source</div>
+          <div class="upload-zone" id="uploadZone">
+            <input type="file" id="videoInput" accept="video/*" />
+            <div class="upload-icon">📹</div>
+            <div class="upload-text">DROP VIDEO FILE</div>
+            <div class="upload-sub">MP4 · AVI · MOV</div>
+            <div class="upload-filename" id="uploadFilename"></div>
+          </div>
+          <!-- after the upload-zone div -->
+          <div
+            style="
+              text-align: center;
+              padding: 8px 0;
+              font-family: var(--mono);
+              font-size: 10px;
+              color: var(--text-faint);
+            ">
+            OR
+          </div>
+          <button class="btn btn-primary" id="cameraBtn">
+            📷 USE LIVE CAMERA
+          </button>
+        </div>
+
+        <!-- Stop Line -->
+        <div class="panel-section">
+          <div class="panel-label">Stop Line</div>
+          <div class="draw-instruction">
+            ① Upload video to load frame<br />
+            ② Click &amp; drag on feed to draw stop line<br />
+            ③ Line turns red when set
+          </div>
+          <div class="line-status" id="lineStatus">⬡ NO LINE SET</div>
+        </div>
+
+        <!-- Controls -->
+        <div class="panel-section">
+          <div class="panel-label">Controls</div>
+          <button
+            class="btn btn-primary"
+            id="startBtn"
+            disabled
+            style="margin-bottom: 8px">
+            ▶ START ANALYSIS
+          </button>
+          <button class="btn btn-danger" id="stopBtn" disabled>■ ABORT</button>
+        </div>
+
+        <!-- Stats -->
+        <div class="panel-section">
+          <div class="panel-label">Session Stats</div>
+          <div class="stat-grid">
+            <div class="stat-box">
+              <span class="stat-val" id="statFrame">0</span>
+              <span class="stat-label">Frames</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-val danger" id="statViol">0</span>
+              <span class="stat-label">Violations</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-val" id="statVehicles">0</span>
+              <span class="stat-label">Vehicles</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-val amber" id="statLight">—</span>
+              <span class="stat-label">Light</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Downloads -->
+        <div class="panel-section" id="dlSection" style="display: none">
+          <div class="panel-label">Export</div>
+          <a class="dl-btn" href="/download/video" download>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path
+                d="M6 1v7M3 6l3 3 3-3M1 10h10"
+                stroke="currentColor"
+                stroke-width="1.2"
+                stroke-linecap="round" />
+            </svg>
+            Download Output Video
+          </a>
+          <a class="dl-btn" id="dlCsv" href="#" download="violations.csv">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path
+                d="M6 1v7M3 6l3 3 3-3M1 10h10"
+                stroke="currentColor"
+                stroke-width="1.2"
+                stroke-linecap="round" />
+            </svg>
+            Download Violations CSV
+          </a>
+          <button class="btn" id="resultsBtn" style="margin-top: 4px">
+            ☰ VIEW RESULTS TABLE
+          </button>
+        </div>
+      </aside>
+
+      <!-- CENTER FEED -->
+      <main class="panel-center">
+        <div class="feed-header">
+          <div class="status-dot" id="feedDot"></div>
+          <div class="feed-title">Live Feed</div>
+          <div class="corner-tag" id="feedMeta">NO SIGNAL</div>
+        </div>
+
+        <div class="feed-area" id="feedArea">
+          <div class="feed-empty" id="feedEmpty">
+            <div class="feed-empty-icon">⬛</div>
+            <div class="feed-empty-text">Awaiting video source</div>
+          </div>
+          <!-- first frame preview (draw mode) -->
+          <canvas id="draw-canvas"></canvas>
+          <!-- live feed image -->
+          <img id="feed-canvas" style="display: none" alt="Live Feed" />
+        </div>
+
+        <div class="progress-bar-wrap" id="progressWrap">
+          <div class="progress-meta">
+            <span id="progressLabel">PROCESSING…</span>
+            <span id="progressPct">0%</span>
+          </div>
+          <div class="progress-track">
+            <div class="progress-fill" id="progressFill"></div>
+          </div>
+        </div>
+      </main>
+
+      <!-- RIGHT PANEL — violations -->
+      <aside class="panel-right">
+        <div class="violations-header">
+          <div class="panel-label" style="margin: 0; flex: 1">
+            Violations Log
+          </div>
+          <div class="viol-count-badge" id="violBadge">0</div>
+        </div>
+        <div class="violations-scroll" id="violationsScroll">
+          <div class="viol-empty" id="violEmpty">
+            NO VIOLATIONS<br />DETECTED YET
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- RESULTS MODAL -->
+    <div class="modal-overlay" id="resultsModal">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title">Analysis Results</div>
+          <button class="modal-close" id="modalClose">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="results-summary" id="resultsSummary"></div>
+          <table class="viol-table" id="resultsTable">
+            <thead>
+              <tr>
+                <th>Frame</th>
+                <th>Time</th>
+                <th>Plate</th>
+                <th>Vehicle</th>
+              </tr>
+            </thead>
+            <tbody id="resultsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // ── CLOCK ──
+      function updateClock() {
+        const now = new Date();
+        document.getElementById("clock").textContent = now
+          .toTimeString()
+          .slice(0, 8);
+      }
+      setInterval(updateClock, 1000);
+      updateClock();
+
+      // ── STATE ──
+      const state = {
+        videoFile: null,
+        lineP1: null,
+        lineP2: null,
+        drawing: false,
+        violations: [],
+        ws: null,
+        running: false,
+        frameCount: 0,
+        vehiclesSeen: new Set(),
+      };
+
+      // ── REFS ──
+      const videoInput = document.getElementById("videoInput");
+      const uploadZone = document.getElementById("uploadZone");
+      const uploadFilename = document.getElementById("uploadFilename");
+      const startBtn = document.getElementById("startBtn");
+      const stopBtn = document.getElementById("stopBtn");
+      const statusDot = document.getElementById("statusDot");
+      const statusLabel = document.getElementById("statusLabel");
+      const feedDot = document.getElementById("feedDot");
+      const feedMeta = document.getElementById("feedMeta");
+      const lineStatus = document.getElementById("lineStatus");
+      const feedEmpty = document.getElementById("feedEmpty");
+      const feedCanvas = document.getElementById("feed-canvas");
+      const drawCanvas = document.getElementById("draw-canvas");
+      const feedArea = document.getElementById("feedArea");
+      const progressWrap = document.getElementById("progressWrap");
+      const progressFill = document.getElementById("progressFill");
+      const progressPct = document.getElementById("progressPct");
+      const progressLabel = document.getElementById("progressLabel");
+      const statFrame = document.getElementById("statFrame");
+      const statViol = document.getElementById("statViol");
+      const statVehicles = document.getElementById("statVehicles");
+      const statLight = document.getElementById("statLight");
+      const violBadge = document.getElementById("violBadge");
+      const violationsScroll = document.getElementById("violationsScroll");
+      const violEmpty = document.getElementById("violEmpty");
+      const alertBanner = document.getElementById("alertBanner");
+      const dlSection = document.getElementById("dlSection");
+      const resultsBtn = document.getElementById("resultsBtn");
+      const resultsModal = document.getElementById("resultsModal");
+      const modalClose = document.getElementById("modalClose");
+      const resultsSummary = document.getElementById("resultsSummary");
+      const resultsBody = document.getElementById("resultsBody");
+      const dlCsv = document.getElementById("dlCsv");
+
+      const dCtx = drawCanvas.getContext("2d");
+
+      // ── DRAG AND DROP ──
+      uploadZone.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        uploadZone.classList.add("drag");
+      });
+      uploadZone.addEventListener("dragleave", () =>
+        uploadZone.classList.remove("drag"),
+      );
+      uploadZone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        uploadZone.classList.remove("drag");
+        if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+      });
+      videoInput.addEventListener("change", () => {
+        if (videoInput.files[0]) handleFile(videoInput.files[0]);
+      });
+
+      async function handleFile(file) {
+        state.videoFile = file;
+        uploadFilename.textContent = file.name;
+        setStatus("LOADING", false);
+
+        const fd = new FormData();
+        fd.append("video", file);
+
+        try {
+          const res = await fetch("/first-frame", { method: "POST", body: fd });
+          const data = await res.json();
+
+          // show draw canvas
+          feedEmpty.style.display = "none";
+          drawCanvas.style.display = "block";
+          feedCanvas.style.display = "none";
+
+          // size canvas to feed area, preserving aspect
+          const areaW = feedArea.clientWidth;
+          const areaH = feedArea.clientHeight;
+          const scale = Math.min(areaW / data.width, areaH / data.height);
+          const cw = Math.round(data.width * scale);
+          const ch = Math.round(data.height * scale);
+
+          drawCanvas.width = cw;
+          drawCanvas.height = ch;
+          drawCanvas.style.width = cw + "px";
+          drawCanvas.style.height = ch + "px";
+          drawCanvas.dataset.scaleX = (data.width / cw).toString();
+          drawCanvas.dataset.scaleY = (data.height / ch).toString();
+
+          // draw first frame
+          const img = new Image();
+          img.onload = () => {
+            dCtx.drawImage(img, 0, 0, cw, ch);
+            state.firstFrameImg = img;
+          };
+          img.src = "data:image/jpeg;base64," + data.frame;
+
+          feedMeta.textContent = `${data.width}×${data.height}  ·  ${data.total_frames} frames`;
+          setStatus("READY", true);
+
+          // reset line
+          state.lineP1 = state.lineP2 = null;
+          lineStatus.textContent = "⬡ NO LINE SET";
+          lineStatus.classList.remove("set");
+          checkReady();
+        } catch (e) {
+          console.error(e);
+          setStatus("ERROR", false);
+        }
+      }
+
+      // ── DRAW LINE ON CANVAS ──
+      drawCanvas.addEventListener("mousedown", (e) => {
+        if (state.running) return;
+        state.drawing = true;
+        const r = drawCanvas.getBoundingClientRect();
+        state.lineP1 = [e.clientX - r.left, e.clientY - r.top];
+        state.lineP2 = null;
+      });
+
+      drawCanvas.addEventListener("mousemove", (e) => {
+        if (!state.drawing || !state.lineP1) return;
+        const r = drawCanvas.getBoundingClientRect();
+        const p2 = [e.clientX - r.left, e.clientY - r.top];
+        redrawCanvas(p2);
+      });
+
+      drawCanvas.addEventListener("mouseup", (e) => {
+        if (!state.drawing) return;
+        state.drawing = false;
+        const r = drawCanvas.getBoundingClientRect();
+        state.lineP2 = [e.clientX - r.left, e.clientY - r.top];
+        redrawCanvas(state.lineP2);
+
+        // convert to real coords
+        const sx = parseFloat(drawCanvas.dataset.scaleX);
+        const sy = parseFloat(drawCanvas.dataset.scaleY);
+        state.lineP1real = [
+          Math.round(state.lineP1[0] * sx),
+          Math.round(state.lineP1[1] * sy),
+        ];
+        state.lineP2real = [
+          Math.round(state.lineP2[0] * sx),
+          Math.round(state.lineP2[1] * sy),
+        ];
+
+        lineStatus.textContent = `✓ LINE SET  ${JSON.stringify(state.lineP1real)} → ${JSON.stringify(state.lineP2real)}`;
+        lineStatus.classList.add("set");
+        checkReady();
+      });
+
+      function redrawCanvas(p2) {
+        dCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+        if (state.firstFrameImg)
+          dCtx.drawImage(
+            state.firstFrameImg,
+            0,
+            0,
+            drawCanvas.width,
+            drawCanvas.height,
+          );
+        if (state.lineP1) {
+          dCtx.save();
+          dCtx.strokeStyle = "#ff2d2d";
+          dCtx.lineWidth = 2;
+          dCtx.setLineDash([6, 4]);
+          dCtx.shadowColor = "#ff2d2d";
+          dCtx.shadowBlur = 6;
+          dCtx.beginPath();
+          dCtx.moveTo(state.lineP1[0], state.lineP1[1]);
+          dCtx.lineTo(p2[0], p2[1]);
+          dCtx.stroke();
+          dCtx.restore();
+
+          // endpoint dots
+          dCtx.fillStyle = "#ff2d2d";
+          [
+            [state.lineP1[0], state.lineP1[1]],
+            [p2[0], p2[1]],
+          ].forEach(([x, y]) => {
+            dCtx.beginPath();
+            dCtx.arc(x, y, 5, 0, Math.PI * 2);
+            dCtx.fill();
+          });
+        }
+      }
+
+      function checkReady() {
+        startBtn.disabled = !(state.videoFile && state.lineP1 && state.lineP2);
+      }
+
+      // ── STATUS ──
+      function setStatus(label, ready) {
+        statusLabel.textContent = label;
+        statusDot.className = "status-dot" + (ready ? " ready" : "");
+        feedDot.className = "status-dot" + (ready ? " ready" : "");
+      }
+
+      // ── START ANALYSIS ──
+      startBtn.addEventListener("click", () => {
+        if (!state.lineP1real || !state.lineP2real) return;
+        state.running = true;
+        state.violations = [];
+        state.vehiclesSeen.clear();
+        state.frameCount = 0;
+
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+        dlSection.style.display = "none";
+
+        statusDot.className = "status-dot live";
+        statusLabel.textContent = "ANALYZING";
+        feedDot.className = "status-dot live";
+
+        drawCanvas.style.display = "none";
+        feedCanvas.style.display = "block";
+
+        progressWrap.classList.add("visible");
+
+        const ws = new WebSocket(`ws://${location.host}/ws/analyze`);
+        state.ws = ws;
+
+        ws.onopen = () => {
+          ws.send(
+            JSON.stringify({
+              line_p1: state.lineP1real,
+              line_p2: state.lineP2real,
+            }),
+          );
+        };
+
+        ws.onmessage = (e) => {
+          const msg = JSON.parse(e.data);
+
+          if (msg.type === "frame") {
+            feedCanvas.src = "data:image/jpeg;base64," + msg.frame;
+            const pct = msg.progress;
+            progressFill.style.width = pct + "%";
+            progressPct.textContent = pct.toFixed(1) + "%";
+            progressLabel.textContent = `FRAME ${msg.frame_count} / ${msg.total}`;
+            statFrame.textContent = msg.frame_count.toLocaleString();
+          }
+
+          if (msg.type === "violation") {
+            const v = msg.data;
+            state.violations.push(v);
+            addViolationCard(v);
+            statViol.textContent = state.violations.length;
+            flashAlert();
+          }
+
+          if (msg.type === "done") {
+            finishAnalysis(msg.total_violations);
+          }
+        };
+
+        ws.onclose = () => {
+          if (state.running) finishAnalysis(state.violations.length);
+        };
+      });
+
+      stopBtn.addEventListener("click", () => {
+        if (state.ws) state.ws.close();
+        finishAnalysis(state.violations.length);
+      });
+
+      function finishAnalysis(totalViol) {
+        state.running = false;
+        stopBtn.disabled = true;
+
+        statusDot.className = "status-dot ready";
+        statusLabel.textContent = "COMPLETE";
+        feedDot.className = "status-dot ready";
+
+        progressLabel.textContent = "COMPLETE";
+        progressFill.style.width = "100%";
+        progressPct.textContent = "100%";
+
+        dlSection.style.display = "block";
+        buildCsvDownload();
+
+        startBtn.disabled = false;
+      }
+
+      // ── VIOLATION CARD ──
+      function addViolationCard(v) {
+        violEmpty.style.display = "none";
+        const card = document.createElement("div");
+        card.className = "viol-card new-flash";
+
+        const isUnread = v.plate === "UNREAD";
+        card.innerHTML = `
+    <img class="viol-img" src="data:image/jpeg;base64,${v.snap}" alt="violation snapshot"/>
+    <div class="viol-info">
+      <div class="viol-plate ${isUnread ? "unread" : ""}">${isUnread ? "[ PLATE UNREAD ]" : v.plate}</div>
+      <div class="viol-meta">
+        <span class="viol-tag type">${v.label}</span>
+        <span class="viol-tag time">${v.time}</span>
+        <span class="viol-tag frame">F${v.frame}</span>
+      </div>
+    </div>
+  `;
+        violationsScroll.prepend(card);
+        violBadge.textContent = state.violations.length;
+        setTimeout(() => card.classList.remove("new-flash"), 1500);
+      }
+
+      // ── ALERT FLASH ──
+      let alertTimeout;
+      function flashAlert() {
+        alertBanner.style.display = "block";
+        clearTimeout(alertTimeout);
+        alertTimeout = setTimeout(() => {
+          alertBanner.style.display = "none";
+        }, 2000);
+      }
+
+      // ── CSV ──
+      function buildCsvDownload() {
+        const rows = [["Frame", "Time", "CarID", "Plate", "Vehicle"]];
+        state.violations.forEach((v) =>
+          rows.push([v.frame, v.time, v.car_id, v.plate, v.label]),
+        );
+        const csv = rows.map((r) => r.join(",")).join("\n");
+        const blob = new Blob([csv], { type: "text/csv" });
+        dlCsv.href = URL.createObjectURL(blob);
+      }
+
+      // ── RESULTS MODAL ──
+      resultsBtn.addEventListener("click", () => {
+        resultsSummary.innerHTML = `
+    <div class="stat-box">
+      <span class="stat-val danger">${state.violations.length}</span>
+      <span class="stat-label">Violations</span>
+    </div>
+    <div class="stat-box">
+      <span class="stat-val">${statFrame.textContent}</span>
+      <span class="stat-label">Frames</span>
+    </div>
+    <div class="stat-box">
+      <span class="stat-val">${state.violations.filter((v) => v.plate !== "UNREAD").length}</span>
+      <span class="stat-label">Plates Read</span>
+    </div>
+  `;
+        resultsBody.innerHTML = state.violations
+          .map(
+            (v) => `
+    <tr>
+      <td>${v.frame}</td>
+      <td>${v.time}</td>
+      <td class="plate-cell">${v.plate}</td>
+      <td>${v.label}</td>
+    </tr>
+  `,
+          )
+          .join("");
+        resultsModal.classList.add("open");
+      });
+      modalClose.addEventListener("click", () =>
+        resultsModal.classList.remove("open"),
+      );
+      resultsModal.addEventListener("click", (e) => {
+        if (e.target === resultsModal) resultsModal.classList.remove("open");
+      });
+
+      document
+        .getElementById("cameraBtn")
+        .addEventListener("click", async () => {
+          setStatus("CONNECTING", false);
+          try {
+            const res = await fetch("/connect-camera", { method: "POST" });
+            const data = await res.json();
+
+            // exact same flow as handleFile from here
+            feedEmpty.style.display = "none";
+            drawCanvas.style.display = "block";
+            feedCanvas.style.display = "none";
+
+            const areaW = feedArea.clientWidth;
+            const areaH = feedArea.clientHeight;
+            const scale = Math.min(areaW / data.width, areaH / data.height);
+            const cw = Math.round(data.width * scale);
+            const ch = Math.round(data.height * scale);
+
+            drawCanvas.width = cw;
+            drawCanvas.height = ch;
+            drawCanvas.style.width = cw + "px";
+            drawCanvas.style.height = ch + "px";
+            drawCanvas.dataset.scaleX = (data.width / cw).toString();
+            drawCanvas.dataset.scaleY = (data.height / ch).toString();
+
+            const img = new Image();
+            img.onload = () => {
+              dCtx.drawImage(img, 0, 0, cw, ch);
+              state.firstFrameImg = img;
+            };
+            img.src = "data:image/jpeg;base64," + data.frame;
+
+            feedMeta.textContent = `${data.width}×${data.height}  ·  LIVE`;
+            setStatus("CAMERA READY", true);
+
+            state.videoFile = "LIVE"; // tricks checkReady()
+            state.lineP1 = state.lineP2 = null;
+            lineStatus.textContent = "⬡ NO LINE SET";
+            lineStatus.classList.remove("set");
+            checkReady();
+          } catch (e) {
+            setStatus("ERROR", false);
+          }
+        });
+
+      function checkReady() {
+        startBtn.disabled = !(
+          (state.videoFile || state.videoFile === "LIVE") &&
+          state.lineP1 &&
+          state.lineP2
+        );
+      }
+    </script>
+  </body>
+</html>
