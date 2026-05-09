@@ -164,15 +164,13 @@
         flex-direction: column;
         height: calc(100vh - 52px);
         overflow-y: auto;
-        /* Hide scrollbar for Chrome, Safari and Opera */
-        &::-webkit-scrollbar {
-          display: none;
-        }
-
-        /* Hide scrollbar for IE, Edge and Firefox */
-        -ms-overflow-style: none; /* IE and Edge */
-        scrollbar-width: none; /* Firefox */
+        -ms-overflow-style: none;
+        scrollbar-width: none;
       }
+      .panel-left::-webkit-scrollbar {
+        display: none;
+      }
+
       .panel-section {
         border-bottom: 1px solid var(--border);
         padding: 16px;
@@ -430,7 +428,6 @@
         border-width: 0 2px 2px 0;
       }
 
-      /* THE KEY: draw-canvas sits on top of feed-canvas both absolutely positioned */
       #feed-canvas {
         position: absolute;
         max-width: 100%;
@@ -524,14 +521,8 @@
         flex: 1;
         overflow-y: auto;
         padding: 12px;
-        /* Hide scrollbar for Chrome, Safari and Opera */
-        &::-webkit-scrollbar {
-          display: none;
-        }
-
-        /* Hide scrollbar for IE, Edge and Firefox */
-        -ms-overflow-style: none; /* IE and Edge */
-        scrollbar-width: none; /* Firefox */
+        -ms-overflow-style: none;
+        scrollbar-width: none;
       }
       .violations-scroll::-webkit-scrollbar {
         width: 3px;
@@ -750,7 +741,6 @@
         letter-spacing: 2px;
       }
 
-      /* droidcam input row */
       .cam-row {
         display: flex;
         gap: 6px;
@@ -784,11 +774,11 @@
         letter-spacing: 0.5px;
       }
       .status-error {
-        color: #ff4d4d; /* A nice readable red */
+        color: #ff4d4d;
         font-weight: bold;
       }
       .connected {
-        color: #4caf50; /* A nice readable green */
+        color: #4caf50;
         font-weight: bold;
       }
     </style>
@@ -810,7 +800,6 @@
 
     <div class="workspace">
       <aside class="panel-left">
-        <!-- Upload -->
         <div class="panel-section">
           <div class="panel-label">Input Source</div>
           <div class="upload-zone" id="uploadZone">
@@ -820,7 +809,6 @@
             <div class="upload-sub">MP4 · AVI · MOV</div>
             <div class="upload-filename" id="uploadFilename"></div>
           </div>
-
           <div
             style="
               text-align: center;
@@ -831,7 +819,6 @@
             ">
             OR LIVE CAMERA
           </div>
-
           <div class="cam-row">
             <input
               class="cam-input"
@@ -845,7 +832,6 @@
           <div class="cam-status" id="camStatus"></div>
         </div>
 
-        <!-- Stop Line -->
         <div class="panel-section">
           <div class="panel-label">Stop Line</div>
           <div class="draw-instruction" id="drawInstruction">
@@ -856,7 +842,6 @@
           <div class="line-status" id="lineStatus">⬡ NO LINE SET</div>
         </div>
 
-        <!-- Controls -->
         <div class="panel-section">
           <div class="panel-label">Controls</div>
           <button
@@ -869,7 +854,6 @@
           <button class="btn btn-danger" id="stopBtn" disabled>■ ABORT</button>
         </div>
 
-        <!-- Stats -->
         <div class="panel-section">
           <div class="panel-label">Session Stats</div>
           <div class="stat-grid">
@@ -892,7 +876,6 @@
           </div>
         </div>
 
-        <!-- Downloads -->
         <div class="panel-section" id="dlSection" style="display: none">
           <div class="panel-label">Export</div>
           <a class="dl-btn" href="/download/video" download>
@@ -927,18 +910,14 @@
           <div class="feed-title">Live Feed</div>
           <div class="corner-tag" id="feedMeta">NO SIGNAL</div>
         </div>
-
         <div class="feed-area" id="feedArea">
           <div class="feed-empty" id="feedEmpty">
             <div class="feed-empty-icon">⬛</div>
             <div class="feed-empty-text">Awaiting video source</div>
           </div>
-          <!-- feed-canvas: shows processed frames during analysis OR live preview frames -->
           <img id="feed-canvas" alt="Live Feed" />
-          <!-- draw-canvas: transparent overlay for drawing the stop line — sits on top -->
           <canvas id="draw-canvas"></canvas>
         </div>
-
         <div class="progress-bar-wrap" id="progressWrap">
           <div class="progress-meta">
             <span id="progressLabel">PROCESSING…</span>
@@ -1013,6 +992,7 @@
         running: false,
         frameCount: 0,
         vehiclesSeen: new Set(),
+        lastCamIp: "", // remembered so abort can restart preview
       };
 
       // ── REFS ──
@@ -1054,7 +1034,6 @@
 
       // ── HELPERS ──
       function setStatus(label, mode) {
-        // mode: 'standby' | 'ready' | 'live'
         statusLabel.textContent = label;
         statusDot.className =
           "status-dot" +
@@ -1076,7 +1055,6 @@
         drawCanvas.style.height = ch + "px";
         drawCanvas.dataset.scaleX = (vidW / cw).toString();
         drawCanvas.dataset.scaleY = (vidH / ch).toString();
-        // also size the feed-canvas img to match
         feedCanvas.style.width = cw + "px";
         feedCanvas.style.height = ch + "px";
       }
@@ -1099,9 +1077,7 @@
       });
 
       async function handleFile(file) {
-        // if live preview is running, kill it first
         killPreview();
-
         state.videoFile = file;
         state.isLive = false;
         uploadFilename.textContent = file.name;
@@ -1114,12 +1090,11 @@
           const data = await res.json();
 
           feedEmpty.style.display = "none";
-          feedCanvas.style.display = "none"; // hide live feed img
-          drawCanvas.style.display = "block"; // show draw canvas with static frame
+          feedCanvas.style.display = "none";
+          drawCanvas.style.display = "block";
 
           sizeDrawCanvas(data.width, data.height);
 
-          // draw first frame as static background
           const img = new Image();
           img.onload = () => {
             dCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
@@ -1138,9 +1113,6 @@
       }
 
       // ── LIVE CAMERA (DROIDCAM) ──
-      // This opens a persistent WebSocket that keeps the phone camera alive.
-      // Frames stream in and paint onto feed-canvas. draw-canvas overlays on top
-      // (transparent bg) so you can still draw your stop line.
       document.getElementById("cameraBtn").addEventListener("click", () => {
         const ip = document.getElementById("droidcamIp").value.trim();
         if (!ip) {
@@ -1148,12 +1120,14 @@
           camStatus.classList.add("status-error");
           return;
         }
-
-        // Remove the class if the input is valid
         camStatus.classList.remove("status-error");
+        startPreview(ip);
+      });
 
-        // kill any existing preview
+      // ── FIX: extracted into function so abort can call it too ──
+      function startPreview(ip) {
         killPreview();
+        state.lastCamIp = ip;
 
         camStatus.textContent = "Connecting…";
         setStatus("CONNECTING", "standby");
@@ -1176,25 +1150,19 @@
           }
 
           if (msg.type === "init") {
-            // first frame received — set up canvas sizes
             state.isLive = true;
             state.videoFile = "LIVE";
 
             feedEmpty.style.display = "none";
-            feedCanvas.style.display = "block"; // show the streaming img
-            drawCanvas.style.display = "block"; // keep draw canvas on top
+            feedCanvas.style.display = "block";
+            drawCanvas.style.display = "block";
 
             sizeDrawCanvas(msg.width, msg.height);
-
-            // paint first frame onto the underlying img tag
             feedCanvas.src = "data:image/jpeg;base64," + msg.frame;
-
-            // draw-canvas is transparent — user draws line on it
             dCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
 
             feedMeta.textContent = `${msg.width}×${msg.height}  ·  LIVE`;
             camStatus.textContent = "● Connected";
-            // Remove the class if the input is valid
             camStatus.classList.remove("status-error");
             camStatus.classList.add("connected");
             setStatus("CAMERA READY", "ready");
@@ -1203,8 +1171,6 @@
           }
 
           if (msg.type === "frame") {
-            // continuous frames — update the img underneath the draw canvas
-            // if user is actively drawing, skip updating so the line isn't repainted
             feedCanvas.src = "data:image/jpeg;base64," + msg.frame;
           }
         };
@@ -1220,19 +1186,17 @@
           camStatus.textContent = "✗ Connection failed";
           setStatus("ERROR", "standby");
         };
-      });
+      }
 
       function killPreview() {
         if (state.previewWs) {
-          state.previewWs.onclose = null; // suppress the disconnect handler
+          state.previewWs.onclose = null;
           state.previewWs.close();
           state.previewWs = null;
         }
       }
 
       // ── DRAW STOP LINE ──
-      // For video: draws on top of static first-frame image
-      // For live: draws on transparent canvas over the streaming feed-canvas
       drawCanvas.addEventListener("mousedown", (e) => {
         if (state.running) return;
         state.drawing = true;
@@ -1272,9 +1236,6 @@
 
       function redrawLine(p2) {
         dCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
-
-        // for video mode: repaint the static frame underneath
-        // for live mode: canvas is transparent — feed-canvas shows through
         if (!state.isLive && state.firstFrameImg) {
           dCtx.drawImage(
             state.firstFrameImg,
@@ -1284,8 +1245,6 @@
             drawCanvas.height,
           );
         }
-
-        // if there's a committed line already, keep drawing it
         if (state.lineP1) {
           dCtx.save();
           dCtx.strokeStyle = "#ff2d2d";
@@ -1298,7 +1257,6 @@
           dCtx.lineTo(p2[0], p2[1]);
           dCtx.stroke();
           dCtx.restore();
-          // endpoint dots
           dCtx.fillStyle = "#ff2d2d";
           [
             [state.lineP1[0], state.lineP1[1]],
@@ -1311,8 +1269,6 @@
         }
       }
 
-      // after line is set in live mode, keep redrawing it on top of streaming frames
-      // we do this by listening to feedCanvas load events
       feedCanvas.addEventListener("load", () => {
         if (state.lineP1 && state.lineP2 && !state.running) {
           redrawLine(state.lineP2);
@@ -1347,10 +1303,9 @@
       startBtn.addEventListener("click", () => {
         if (!state.lineP1real || !state.lineP2real) return;
 
-        // kill preview stream — analysis will open its own cap
-        killPreview();
+        // In live mode: keep preview alive — analyze shares the same cap
+        if (!state.isLive) killPreview();
 
-        // reset violations panel
         violationsScroll.innerHTML = "";
         violationsScroll.appendChild(violEmpty);
         violEmpty.style.display = "block";
@@ -1415,32 +1370,50 @@
           }
 
           if (msg.type === "done") {
-            finishAnalysis();
+            finishAnalysis(false); // natural finish — don't restart preview
           }
         };
 
         ws.onclose = () => {
-          if (state.running) finishAnalysis();
+          if (state.running) finishAnalysis(true); // closed unexpectedly / aborted
         };
       });
 
+      // ── ABORT ──
+      // FIX: after aborting, if we were in live mode, restart the camera preview
+      // so the feed comes back to life instead of freezing on the last analysis frame.
       stopBtn.addEventListener("click", () => {
-        if (state.analyzeWs) state.analyzeWs.close();
-        finishAnalysis();
+        if (state.analyzeWs) {
+          state.analyzeWs.onclose = null; // suppress the ws.onclose handler
+          state.analyzeWs.close();
+          state.analyzeWs = null;
+        }
+        finishAnalysis(true); // pass true = "was aborted"
       });
 
-      function finishAnalysis() {
+      function finishAnalysis(wasAborted) {
         state.running = false;
         stopBtn.disabled = true;
         startBtn.disabled = false;
 
-        setStatus("COMPLETE", "ready");
-        progressLabel.textContent = "COMPLETE";
+        progressLabel.textContent = wasAborted ? "ABORTED" : "COMPLETE";
         progressFill.style.width = "100%";
-        progressPct.textContent = "100%";
+        progressPct.textContent = wasAborted ? "—" : "100%";
+
+        setStatus(wasAborted ? "ABORTED" : "COMPLETE", "ready");
 
         dlSection.style.display = "block";
         buildCsvDownload();
+
+        // FIX: If we were in live-camera mode, restart the preview stream
+        // so the feed goes back to the live phone camera instead of freezing.
+        if (state.isLive && state.lastCamIp) {
+          // Small delay so the analyze WebSocket fully closes on the server side
+          setTimeout(() => {
+            drawCanvas.style.display = "block"; // draw canvas back on top
+            startPreview(state.lastCamIp);
+          }, 600);
+        }
       }
 
       // ── VIOLATION CARD ──
@@ -1458,8 +1431,7 @@
               <span class="viol-tag time">${v.time}</span>
               <span class="viol-tag frame">F${v.frame}</span>
             </div>
-          </div>
-        `;
+          </div>`;
         violationsScroll.prepend(card);
         setTimeout(() => card.classList.remove("new-flash"), 1500);
       }
@@ -1491,13 +1463,11 @@
         resultsSummary.innerHTML = `
           <div class="stat-box"><span class="stat-val danger">${state.violations.length}</span><span class="stat-label">Violations</span></div>
           <div class="stat-box"><span class="stat-val">${statFrame.textContent}</span><span class="stat-label">Frames</span></div>
-          <div class="stat-box"><span class="stat-val">${state.violations.filter((v) => v.plate !== "UNREAD").length}</span><span class="stat-label">Plates Read</span></div>
-        `;
+          <div class="stat-box"><span class="stat-val">${state.violations.filter((v) => v.plate !== "UNREAD").length}</span><span class="stat-label">Plates Read</span></div>`;
         resultsBody.innerHTML = state.violations
           .map(
-            (v) => `
-          <tr><td>${v.frame}</td><td>${v.time}</td><td class="plate-cell">${v.plate}</td><td>${v.label}</td></tr>
-        `,
+            (v) =>
+              `<tr><td>${v.frame}</td><td>${v.time}</td><td class="plate-cell">${v.plate}</td><td>${v.label}</td></tr>`,
           )
           .join("");
         resultsModal.classList.add("open");
