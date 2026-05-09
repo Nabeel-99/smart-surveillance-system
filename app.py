@@ -1,7 +1,7 @@
 import os, cv2, tempfile, json, asyncio, base64
 from datetime import datetime
 from collections import Counter
-from fastapi import FastAPI, UploadFile, File, Form, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, UploadFile, File, Form, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
@@ -93,22 +93,75 @@ async def index():
     with open("templates/index.html") as f:
         return f.read()
 
-@app.post("/connect-camera")
-async def connect_camera():
-    cap = cv2.VideoCapture("http://192.168.1.195:4747/video")  # EpocCam appears as camera 0 or 1
+
+# ── LIVE CAMERA PREVIEW WebSocket ─────────────────────────────────────────────
+# Opens DroidCam and keeps streaming frames so the phone camera stays live.
+# Frontend renders these onto the draw canvas so you can draw the stop line live.
+@app.websocket("/ws/live-preview")
+async def live_preview(ws: WebSocket):
+    await ws.accept()
+
+    data = await ws.receive_json()
+    ip   = data.get("ip", "").strip()
+    url  = f"http://{ip}:4747/video"
+
+    cap = cv2.VideoCapture(url)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # no buffering — always latest frame
+
+    if not cap.isOpened():
+        await ws.send_json({"type": "error", "msg": f"Cannot open {url}"})
+        await ws.close()
+        return
+
     ret, frame = cap.read()
     if not ret:
-        cap = cv2.VideoCapture(1)  # try index 1 if 0 doesn't work
-        ret, frame = cap.read()
+        await ws.send_json({"type": "error", "msg": "Connected but got no frame"})
+        cap.release()
+        await ws.close()
+        return
+
     h, w = frame.shape[:2]
-    b64 = frame_to_b64(frame)
-    app.state.video_path = "LIVE"
-    app.state.frame_shape = (h, w)
-    app.state.fps = 30
+
+    # store so /ws/analyze can pick up the same source
+    app.state.video_path   = url
+    app.state.frame_shape  = (h, w)
+    app.state.fps          = 30
     app.state.total_frames = float('inf')
-    app.state.camera_index = 0
-    cap.release()
-    return {"frame": b64, "width": w, "height": h, "total_frames": 999999}
+
+    # send init with dimensions + first frame
+    await ws.send_json({
+        "type": "init", "width": w, "height": h,
+        "frame": frame_to_b64(frame)
+    })
+
+    # continuous stream — this is what keeps DroidCam alive on the phone
+    try:
+        frame_n = 0
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                # brief drop — try to reopen
+                cap.release()
+                await asyncio.sleep(0.5)
+                cap = cv2.VideoCapture(url)
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                continue
+
+            frame_n += 1
+            # send every 2nd frame (~15fps) — smooth enough for preview
+            if frame_n % 2 == 0:
+                await ws.send_json({
+                    "type": "frame",
+                    "frame": frame_to_b64(frame)
+                })
+
+            await asyncio.sleep(0.033)  # throttle to ~30fps read rate
+
+    except WebSocketDisconnect:
+        pass
+    finally:
+        cap.release()
+
 
 @app.post("/first-frame")
 async def first_frame(video: UploadFile = File(...)):
@@ -128,6 +181,7 @@ async def first_frame(video: UploadFile = File(...)):
     app.state.fps          = fps
     return {"frame": b64, "width": w, "height": h, "total_frames": total}
 
+
 @app.websocket("/ws/analyze")
 async def analyze(ws: WebSocket):
     await ws.accept()
@@ -142,12 +196,14 @@ async def analyze(ws: WebSocket):
 
     model, plate_model, reader = get_models()
 
-    if video_path == "LIVE":
-        cap = cv2.VideoCapture(app.state.camera_index)
-    else:
-        cap = cv2.VideoCapture(video_path)
-    out = cv2.VideoWriter("output_final.mp4",
-                          cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
+    cap = cv2.VideoCapture(video_path)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+    is_live = (total_frames == float('inf'))
+    out = None
+    if not is_live:
+        out = cv2.VideoWriter("output_final.mp4",
+                              cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
 
     car_memory    = {}
     logged_plates = set()
@@ -157,16 +213,21 @@ async def analyze(ws: WebSocket):
     frame_count   = 0
     violations    = []
 
-    # ── FIX 1: traffic light stabilisation ────────────────────────────────────
-    light_box_smooth = None          # EMA-smoothed [x1,y1,x2,y2] as floats
-    light_color_hist = []            # rolling window of recent colour calls
-    LIGHT_EMA        = 0.25          # smoothing factor for box coords
-    LIGHT_WIN        = 12            # window size for majority-vote colour
+    light_box_smooth = None
+    light_color_hist = []
+    LIGHT_EMA        = 0.25
+    LIGHT_WIN        = 12
 
     try:
         while cap.isOpened():
             ret, frame = cap.read()
-            if not ret: break
+            if not ret:
+                if is_live:
+                    await asyncio.sleep(0.05)
+                    continue
+                else:
+                    break
+
             frame_count += 1
 
             disp = frame.copy()
@@ -176,59 +237,53 @@ async def analyze(ws: WebSocket):
             cv2.putText(disp, "STOP LINE", (mid_x, mid_y),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,255), 2)
 
-            # every-3-frame skip kept exactly as original for performance
             if frame_count % 3 != 0:
                 for cid, info in last_disp.items():
                     bx1,by1,bx2,by2 = info["box"]
                     cv2.rectangle(disp,(bx1,by1),(bx2,by2),info["vc"],2)
                     cv2.putText(disp,info["sl"],(bx1,by1-10),
                                 cv2.FONT_HERSHEY_SIMPLEX,0.7,info["vc"],2)
-                    # FIX 2: plate box redrawn from CURRENT car position each frame
                     if info.get("plate") and info.get("pbox_rel"):
                         rpx1,rpy1,rpx2,rpy2 = info["pbox_rel"]
                         cbx1,cby1,_,_ = info["box"]
-                        apx1 = cbx1 + rpx1
-                        apy1 = cby1 + rpy1
-                        apx2 = cbx1 + rpx2
-                        apy2 = cby1 + rpy2
-                        cv2.rectangle(disp,(apx1,apy1),(apx2,apy2),(0,255,255),2)
-                        cv2.putText(disp,info["plate"],(apx1,apy1-8),
+                        cv2.rectangle(disp,(cbx1+rpx1,cby1+rpy1),(cbx1+rpx2,cby1+rpy2),(0,255,255),2)
+                        cv2.putText(disp,info["plate"],(cbx1+rpx1,cby1+rpy1-8),
                                     cv2.FONT_HERSHEY_SIMPLEX,0.65,(0,255,255),2)
-                    # draw stable traffic light box on skip frames too
                     if light_box_smooth is not None:
                         lx1,ly1,lx2,ly2 = [int(v) for v in light_box_smooth]
-                        lc_skip = {"RED":(0,0,255),"AMBER":(0,165,255),
-                                   "GREEN":(0,200,0)}.get(
-                                       Counter(light_color_hist).most_common(1)[0][0]
-                                       if light_color_hist else "UNKNOWN",
-                                       (128,128,128))
+                        lc_skip = {"RED":(0,0,255),"AMBER":(0,165,255),"GREEN":(0,200,0)}.get(
+                            Counter(light_color_hist).most_common(1)[0][0] if light_color_hist else "UNKNOWN",
+                            (128,128,128))
                         cv2.rectangle(disp,(lx1,ly1),(lx2,ly2),lc_skip,2)
                         cv2.putText(disp,
-                                    f"Light:{Counter(light_color_hist).most_common(1)[0][0] if light_color_hist else 'UNKNOWN'}",
-                                    (lx1,ly1-10),cv2.FONT_HERSHEY_SIMPLEX,0.7,lc_skip,2)
+                            f"Light:{Counter(light_color_hist).most_common(1)[0][0] if light_color_hist else 'UNKNOWN'}",
+                            (lx1,ly1-10),cv2.FONT_HERSHEY_SIMPLEX,0.7,lc_skip,2)
                 for cid, panel in list(active_panels.items()):
                     if frame_count <= panel["until_frame"]:
-                        draw_info_panel(disp, panel["plate"],
-                                        panel["label"], panel["plate_crop"], w)
+                        draw_info_panel(disp, panel["plate"], panel["label"], panel["plate_crop"], w)
                     else:
                         del active_panels[cid]
-                out.write(disp)
+                if out: out.write(disp)
+                if frame_count % 15 == 0:
+                    pct = 0 if is_live else round(frame_count / total_frames * 100, 1)
+                    await ws.send_json({
+                        "type": "frame", "frame": frame_to_b64(disp),
+                        "progress": pct, "frame_count": frame_count,
+                        "total": total_frames if not is_live else "LIVE"
+                    })
+                    await asyncio.sleep(0)
                 continue
 
-            # ── YOLO on every 3rd frame (unchanged) ───────────────────────────
             results = model.track(frame, persist=True, conf=0.35, verbose=False)[0]
             if results.boxes.id is None:
-                out.write(disp)
+                if out: out.write(disp)
                 continue
 
-            # ── FIX 1: traffic light — EMA box + majority-vote colour ─────────
             new_lbox   = None
             new_lcolor = "UNKNOWN"
             best_conf  = 0
 
-            for box, cls, conf in zip(results.boxes.xyxy,
-                                      results.boxes.cls,
-                                      results.boxes.conf):
+            for box, cls, conf in zip(results.boxes.xyxy, results.boxes.cls, results.boxes.conf):
                 if model.names[int(cls)] == "traffic light" and float(conf) > best_conf:
                     col_c = get_light_color(frame, box, h)
                     if col_c != "UNKNOWN":
@@ -236,19 +291,16 @@ async def analyze(ws: WebSocket):
                         new_lbox   = box
                         new_lcolor = col_c
 
-            # update colour history only on actual detections
             if new_lcolor != "UNKNOWN":
                 light_color_hist.append(new_lcolor)
             if len(light_color_hist) > LIGHT_WIN:
                 light_color_hist.pop(0)
 
-            # stable colour via majority vote
             light_color = (Counter(light_color_hist).most_common(1)[0][0]
                            if light_color_hist else "UNKNOWN")
 
-            # EMA smoothing on box coords — only updates when detected
             if new_lbox is not None:
-                raw = [float(v) for v in [int(x) for x in new_lbox]]
+                raw = [float(int(x)) for x in new_lbox]
                 if light_box_smooth is None:
                     light_box_smooth = raw
                 else:
@@ -257,9 +309,7 @@ async def analyze(ws: WebSocket):
                         for r, s in zip(raw, light_box_smooth)
                     ]
 
-            # draw traffic light box using smoothed coords
-            # (persists last known position even when YOLO misses it)
-            lc_bgr      = (128, 128, 128)
+            lc_bgr = (128,128,128)
             lbox_coords = None
             if light_box_smooth is not None:
                 lx1,ly1,lx2,ly2 = [int(v) for v in light_box_smooth]
@@ -272,9 +322,7 @@ async def analyze(ws: WebSocket):
 
             last_disp = {}
 
-            for box, cls, tid in zip(results.boxes.xyxy,
-                                     results.boxes.cls,
-                                     results.boxes.id):
+            for box, cls, tid in zip(results.boxes.xyxy, results.boxes.cls, results.boxes.id):
                 label = model.names[int(cls)]
                 if label not in ["car","truck","bus","motorcycle"]: continue
                 if tid is None: continue
@@ -284,31 +332,25 @@ async def analyze(ws: WebSocket):
 
                 if car_id not in car_memory:
                     car_memory[car_id] = {
-                        "label":       label,
-                        "plates":      [],
-                        "pbox_rel":    None,   # FIX 2: relative coords inside car crop
-                        "logged":      False,
-                        "is_violator": False,
+                        "label": label, "plates": [],
+                        "pbox_rel": None, "logged": False, "is_violator": False
                     }
                 mem = car_memory[car_id]
 
                 crossed = crosses_line(lp1, lp2, x1, y1, x2, y2)
                 is_viol = light_color == "RED" and crossed
-                if is_viol:
-                    mem["is_violator"] = True
+                if is_viol: mem["is_violator"] = True
 
                 plate_crop_raw = None
                 if is_viol and not mem["logged"]:
                     car_crop  = frame[y1:y2, x1:x2]
-                    plate_res = plate_model.predict(
-                        car_crop, conf=0.25, verbose=False)[0]
+                    plate_res = plate_model.predict(car_crop, conf=0.25, verbose=False)[0]
                     for pbox in plate_res.boxes.xyxy:
                         px1,py1,px2,py2 = map(int, pbox)
                         pc   = car_crop[py1:py2, px1:px2]
                         text = read_plate(pc, reader)
                         if text:
                             mem["plates"].append(text)
-                            # FIX 2: store RELATIVE coords inside the car crop
                             mem["pbox_rel"] = (px1, py1, px2, py2)
                             plate_crop_raw  = pc
                     if plate_crop_raw is None and len(plate_res.boxes.xyxy) > 0:
@@ -328,28 +370,18 @@ async def analyze(ws: WebSocket):
                     vc, sl = (128,128,128), label.upper()
 
                 cv2.rectangle(disp,(x1,y1),(x2,y2),vc,2)
-                cv2.putText(disp,sl,(x1,y1-10),
-                            cv2.FONT_HERSHEY_SIMPLEX,0.7,vc,2)
+                cv2.putText(disp,sl,(x1,y1-10), cv2.FONT_HERSHEY_SIMPLEX,0.7,vc,2)
 
-                # FIX 2: recompute absolute plate coords from CURRENT car position
                 if best_plate and mem["pbox_rel"]:
                     rpx1,rpy1,rpx2,rpy2 = mem["pbox_rel"]
-                    apx1 = x1 + rpx1
-                    apy1 = y1 + rpy1
-                    apx2 = x1 + rpx2
-                    apy2 = y1 + rpy2
-                    cv2.rectangle(disp,(apx1,apy1),(apx2,apy2),(0,255,255),2)
-                    cv2.putText(disp,best_plate,(apx1,apy1-8),
+                    cv2.rectangle(disp,(x1+rpx1,y1+rpy1),(x1+rpx2,y1+rpy2),(0,255,255),2)
+                    cv2.putText(disp,best_plate,(x1+rpx1,y1+rpy1-8),
                                 cv2.FONT_HERSHEY_SIMPLEX,0.65,(0,255,255),2)
 
                 last_disp[car_id] = {
-                    "box":      (x1,y1,x2,y2),
-                    "vc":       vc,
-                    "sl":       sl,
-                    "plate":    best_plate,
-                    "pbox_rel": mem["pbox_rel"],   # FIX 2: store relative, not absolute
-                    "light_box": lbox_coords,
-                    "lc":       lc_bgr,
+                    "box": (x1,y1,x2,y2), "vc": vc, "sl": sl,
+                    "plate": best_plate, "pbox_rel": mem["pbox_rel"],
+                    "light_box": lbox_coords, "lc": lc_bgr
                 }
 
                 if is_viol and not mem["logged"]:
@@ -358,47 +390,37 @@ async def analyze(ws: WebSocket):
                         snap_path = f"violations_snapshots/car{car_id}_f{frame_count}.jpg"
                         cv2.imwrite(snap_path, frame[y1:y2, x1:x2])
                         ts = datetime.now().strftime("%H:%M:%S")
-
                         snap_b64 = img_to_b64(frame[y1:y2, x1:x2])
                         viol = {
-                            "frame":  frame_count,
-                            "time":   ts,
-                            "car_id": car_id,
-                            "plate":  plate_str,
-                            "label":  label,
-                            "snap":   snap_b64,
+                            "frame": frame_count, "time": ts,
+                            "car_id": car_id, "plate": plate_str,
+                            "label": label, "snap": snap_b64
                         }
                         violations.append(viol)
-
                         active_panels[car_id] = {
-                            "plate":       plate_str,
-                            "label":       label,
-                            "plate_crop":  plate_crop_raw,
-                            "until_frame": frame_count + PANEL_DURATION,
+                            "plate": plate_str, "label": label,
+                            "plate_crop": plate_crop_raw,
+                            "until_frame": frame_count + PANEL_DURATION
                         }
                         if plate_str != "UNREAD":
                             logged_plates.add(plate_str)
                         mem["logged"] = True
-
                         await ws.send_json({"type": "violation", "data": viol})
 
             for cid, panel in list(active_panels.items()):
                 if frame_count <= panel["until_frame"]:
-                    draw_info_panel(disp, panel["plate"], panel["label"],
-                                    panel["plate_crop"], w)
+                    draw_info_panel(disp, panel["plate"], panel["label"], panel["plate_crop"], w)
                 else:
                     del active_panels[cid]
 
-            out.write(disp)
+            if out: out.write(disp)
 
             if frame_count % 15 == 0:
-                pct = 0 if total_frames == float('inf') else round(frame_count / total_frames * 100, 1)
+                pct = 0 if is_live else round(frame_count / total_frames * 100, 1)
                 await ws.send_json({
-                    "type":        "frame",
-                    "frame":       frame_to_b64(disp),
-                    "progress":    pct,
-                    "frame_count": frame_count,
-                    "total":       total_frames,
+                    "type": "frame", "frame": frame_to_b64(disp),
+                    "progress": pct, "frame_count": frame_count,
+                    "total": total_frames if not is_live else "LIVE"
                 })
                 await asyncio.sleep(0)
 
@@ -406,19 +428,15 @@ async def analyze(ws: WebSocket):
         pass
     finally:
         cap.release()
-        out.release()
+        if out: out.release()
 
     await ws.send_json({"type": "done", "total_violations": len(violations)})
+
 
 @app.get("/download/video")
 async def download_video():
     return FileResponse("output_final.mp4", media_type="video/mp4",
                         filename="surveillance_output.mp4")
-
-@app.get("/download/csv")
-async def download_csv():
-    import csv, io
-    return JSONResponse({"message": "Use the violations data from the session"})
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=False)
