@@ -22,27 +22,49 @@ def get_models():
         _reader      = easyocr.Reader(['en'])
     return _model, _plate_model, _reader
 
+# def get_light_color(frame, box, frame_h):
+#     x1,y1,x2,y2 = map(int, box)
+#     if y1 > frame_h * 0.45: return "UNKNOWN"
+#     crop = frame[y1:y2, x1:x2]
+#     if crop.size == 0: return "UNKNOWN"
+#     hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+#     r = cv2.inRange(hsv,(0,70,50),(10,255,255)) + cv2.inRange(hsv,(160,70,50),(180,255,255))
+#     g = cv2.inRange(hsv,(40,40,40),(95,255,255))
+#     a = cv2.inRange(hsv,(15,40,40),(35,255,255))
+#     scores = {"RED":int(r.sum()),"GREEN":int(g.sum()),"AMBER":int(a.sum())}
+#     best = max(scores, key=scores.get)
+#     return best if scores[best] > 300 else "UNKNOWN"
 def get_light_color(frame, box, frame_h):
-    x1,y1,x2,y2 = map(int, box)
-    if y1 > frame_h * 0.45: return "UNKNOWN"
+    x1, y1, x2, y2 = map(int, box)
+    if y1 > frame_h * 0.45:
+        return "UNKNOWN"
     crop = frame[y1:y2, x1:x2]
-    if crop.size == 0: return "UNKNOWN"
+    if crop.size == 0:
+        return "UNKNOWN"
+
     h = crop.shape[0]
     third = max(1, h // 3)
+
     def dominant(c):
-        if c.size == 0: return "UNKNOWN", 0
+        if c.size == 0:
+            return "UNKNOWN", 0
         hsv = cv2.cvtColor(c, cv2.COLOR_BGR2HSV)
-        r = cv2.inRange(hsv,(0,70,50),(10,255,255)) + cv2.inRange(hsv,(160,70,50),(180,255,255))
-        g = cv2.inRange(hsv,(40,40,40),(95,255,255))
-        a = cv2.inRange(hsv,(15,40,40),(35,255,255))
-        scores = {"RED":int(r.sum()),"GREEN":int(g.sum()),"AMBER":int(a.sum())}
+        r = cv2.inRange(hsv, (0,70,50), (10,255,255)) + \
+            cv2.inRange(hsv, (160,70,50), (180,255,255))
+        g = cv2.inRange(hsv, (40,40,40), (95,255,255))
+        a = cv2.inRange(hsv, (15,40,40), (35,255,255))
+        scores = {"RED": int(r.sum()), "GREEN": int(g.sum()), "AMBER": int(a.sum())}
         best = max(scores, key=scores.get)
         return (best, scores[best]) if scores[best] > 300 else ("UNKNOWN", 0)
-    tc, ts = dominant(crop[:third])
-    bc, bs = dominant(crop[2*third:])
+
+    tc, ts = dominant(crop[:third])        # red lives here
+    mc, ms = dominant(crop[third:2*third]) # amber lives here
+    bc, bs = dominant(crop[2*third:])      # green lives here
+
     if tc == "RED"   and ts > bs: return "RED"
     if bc == "GREEN" and bs > ts: return "GREEN"
-    return tc if ts >= bs else bc
+    if mc == "AMBER" and ms > 300: return "AMBER"  # ← the missing line
+    return "UNKNOWN"
 
 def read_plate(crop, reader):
     if crop.size == 0: return None
@@ -203,7 +225,7 @@ async def analyze(ws: WebSocket):
         frame_count   = 0
         lbs           = None   # light_box_smooth
         lch           = []     # light_color_hist
-        LEMA, LWIN    = 0.25, 12
+        LEMA, LWIN    = 0.25, 6
         SEND          = 5
 
         while True:
