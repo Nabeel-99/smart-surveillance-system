@@ -65,6 +65,8 @@ violations_snapshots/
 # Logs
 *.log
 logs/
+sessions
+testvideos
 
 # Temporary files
 *.tmp
