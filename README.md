@@ -99,6 +99,11 @@ Place `plate_detector.pt` in the project root before starting. If you have a cus
 ```bash
 uvicorn app:app --reload --host 0.0.0.0 --port 8000
 ```
+or
+
+```bash
+python app.py
+```
 
 ### 6. Open in browser
 
