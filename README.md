@@ -118,11 +118,10 @@ http://localhost:8000
 ### Step-by-step
 
 1. **Upload a video** — click "Browse files" or drag-and-drop. Supported: MP4, AVI, MOV, MKV (max ~100 MB recommended).
-2. **Draw the stop line** — on the first frame preview, click and drag to mark where vehicles must stop. Use the undo/redo/delete buttons to adjust.
-3. **Configure confidence** — the slider controls YOLO detection confidence (0.2–0.8). Lower values catch more vehicles but increase false positives.
-4. **Virtual Traffic Light (optional)** — if the physical traffic light is not visible in your footage, enable the VTL toggle and set the colour manually to simulate signal state.
-5. **Start analysis** — click ▶️ **Start Analysis**. Live violation cards will appear as the system processes each frame.
-6. **Review results** — once complete, download the CSV report and/or the highlights clip from the results panel.
+2. **Draw the stop line** — on the first frame preview, click the starting point and drag to mark where vehicles must stop then release. 
+3. **Virtual Traffic Light (optional)** — if the physical traffic light is not visible in your footage, enable the VTL toggle and set the colour manually to simulate signal state.
+4. **Start analysis** — click ▶️ **Start Analysis**. Live violation cards will appear as the system processes each frame.
+5. **Review results** — once complete, download the CSV report and/or the highlights clip from the results panel.
 
 ### Live camera mode (IP camera)
 
