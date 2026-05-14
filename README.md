@@ -10,14 +10,14 @@
 
 ## 📽️ Demo Video
 
+https://github.com/user-attachments/assets/66e8b459-0ebf-4d3d-b917-913fdba91d9f
 
-https://github.com/user-attachments/assets/d255bab2-2b13-4795-a85d-b555d6d7f234
 
 ---
 
 ## 🎬 Sample Output Video
 
-https://github.com/user-attachments/assets/66e8b459-0ebf-4d3d-b917-913fdba91d9f
+https://github.com/user-attachments/assets/d255bab2-2b13-4795-a85d-b555d6d7f234
 
 ---
 
