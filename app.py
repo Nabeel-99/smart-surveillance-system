@@ -1,4 +1,4 @@
-import os, cv2, tempfile, asyncio, base64, subprocess, threading
+import os, cv2, tempfile, asyncio, base64, threading
 from datetime import datetime
 from collections import Counter, deque
 from fastapi import FastAPI, UploadFile, File, WebSocket, WebSocketDisconnect
@@ -28,7 +28,6 @@ def make_session_dir():
     ts      = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     session = os.path.join("sessions", ts)
     os.makedirs(os.path.join(session, "snapshots"), exist_ok=True)
-    os.makedirs(os.path.join(session, "clips"),     exist_ok=True)
     return session
 
 
@@ -134,23 +133,23 @@ def crosses_line(p1, p2, x1, y1, x2, y2):
     return False
 
 
-# ── PLATE OCR ─────────────────────────────────────────────────────────────────
-# ── PLATE OCR (reads from file path, not from crop directly) ──────────────────
-def read_plate_from_file(plate_path: str, reader) -> str:
+# ── PLATE OCR (accurate multi-variant, reads from numpy crop) ─────────────────
+def read_plate(crop, reader):
     """
-    Read plate text from a saved image file.
-    Returns plate string or None.
+    High-accuracy plate OCR on a numpy crop.
+    Uses multiple image preprocessing variants + beam search,
+    same approach as the proven read_plate_from_file but without
+    the disk roundtrip for speed.
     """
-    img = cv2.imread(plate_path)
-    if img is None or img.size == 0:
+    if crop is None or crop.size == 0:
         return None
-
-    h, w = img.shape[:2]
+    h, w = crop.shape[:2]
     if w < 20 or h < 8:
         return None
 
+    # Scale up aggressively for small plates
     scale = max(4.0, 200 / max(w, 1))
-    big   = cv2.resize(img, None, fx=scale, fy=scale,
+    big   = cv2.resize(crop, None, fx=scale, fy=scale,
                        interpolation=cv2.INTER_CUBIC)
 
     gray = cv2.cvtColor(big, cv2.COLOR_BGR2GRAY)
@@ -175,14 +174,12 @@ def read_plate_from_file(plate_path: str, reader) -> str:
                                         cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                         cv2.THRESH_BINARY, 15, 4)
 
-    # Extra: try reading each horizontal half separately (catches two-line plates)
-    half_h = big.shape[0] // 2
-    top_half    = cv2.cvtColor(big[:half_h], cv2.COLOR_BGR2GRAY) if len(big.shape)==3 \
-                  else big[:half_h]
-    bottom_half = cv2.cvtColor(big[half_h:], cv2.COLOR_BGR2GRAY) if len(big.shape)==3 \
-                  else big[half_h:]
+    # Top and bottom halves for two-line plates
+    half_h      = big.shape[0] // 2
+    top_half    = gray[:half_h]
+    bottom_half = gray[half_h:]
 
-    variants = [sharpened, enhanced, otsu, otsu_inv, adaptive, big, gray,
+    variants = [sharpened, enhanced, otsu, otsu_inv, adaptive, gray,
                 top_half, bottom_half]
 
     best_text = ""
@@ -204,7 +201,8 @@ def read_plate_from_file(plate_path: str, reader) -> str:
         if not results:
             continue
 
-        results.sort(key=lambda r: r[0][0][1])  # top-to-bottom
+        # Sort top-to-bottom so multi-line plates read correctly
+        results.sort(key=lambda r: r[0][0][1])
 
         combined   = ""
         total_conf = 0.0
@@ -229,24 +227,23 @@ def read_plate_from_file(plate_path: str, reader) -> str:
 # ── BACKGROUND OCR DISPATCHER ─────────────────────────────────────────────────
 class PlateOCRQueue:
     """
-    Background thread pool for plate OCR.
-    When a plate image is saved, call submit().
-    Results land in self.results dict keyed by car_id.
+    Runs read_plate() in a background thread so it never stalls the main loop.
+    Results land in self.results keyed by car_id.
     """
     def __init__(self, reader, max_workers=2):
         from concurrent.futures import ThreadPoolExecutor
-        self._pool    = ThreadPoolExecutor(max_workers=max_workers)
-        self._reader  = reader
-        self.results  = {}   # car_id -> plate_text or "UNREAD"
+        self._pool   = ThreadPoolExecutor(max_workers=max_workers)
+        self._reader = reader
+        self.results = {}  # car_id -> plate text | "UNREAD"
 
-    def submit(self, car_id: int, plate_path: str):
-        """Kick off background OCR for this car. Result goes into self.results."""
+    def submit(self, car_id: int, crop):
+        """Submit a numpy crop for background OCR."""
         self.results[car_id] = "READING..."
-        self._pool.submit(self._run, car_id, plate_path)
+        self._pool.submit(self._run, car_id, crop.copy())
 
-    def _run(self, car_id: int, plate_path: str):
+    def _run(self, car_id: int, crop):
         try:
-            text = read_plate_from_file(plate_path, self._reader)
+            text = read_plate(crop, self._reader)
             self.results[car_id] = text if text else "UNREAD"
         except Exception:
             self.results[car_id] = "UNREAD"
@@ -256,27 +253,8 @@ class PlateOCRQueue:
 
     def shutdown(self):
         self._pool.shutdown(wait=False)
-        
-def reencode_to_h264(src_path):
-    """Re-encode clip to H.264 so browsers can play it inline."""
-    tmp = src_path + ".h264tmp.mp4"
-    try:
-        r = subprocess.run(
-            ['ffmpeg', '-y', '-i', src_path,
-             '-vcodec', 'libx264', '-crf', '23', '-preset', 'fast',
-             '-pix_fmt', 'yuv420p', tmp],
-            capture_output=True, timeout=120
-        )
-        if r.returncode == 0 and os.path.exists(tmp):
-            os.replace(tmp, src_path)
-    except FileNotFoundError:
-        pass   # ffmpeg not installed — mp4v stays, may not play in browser
-    except Exception:
-        try:
-            if os.path.exists(tmp): os.remove(tmp)
-        except Exception:
-            pass
-        
+
+
 # ── VIOLATION INFO PANEL (on-frame overlay) ───────────────────────────────────
 def draw_info_panel(disp, plate_text, label, plate_crop, frame_w):
     pw, ph = 320, 100
@@ -288,8 +266,15 @@ def draw_info_panel(disp, plate_text, label, plate_crop, frame_w):
     if plate_crop is not None and plate_crop.size > 0:
         ch, cw = plate_crop.shape[:2]
         if cw > 0 and ch > 0:
-            disp[py+5:py+50, px+5:px+145] = cv2.resize(plate_crop, (140,45))
-    cv2.putText(disp, f"PLATE: {plate_text}", (px+5,py+60),
+            try:
+                disp[py+5:py+50, px+5:px+145] = cv2.resize(plate_crop, (140,45))
+            except Exception:
+                pass
+    # Show the plate image in top-left of panel if crop provided
+    display_plate = plate_text if plate_text not in (None, "READING...") else "READING..."
+    if plate_text == "UNREAD":
+        display_plate = "UNREAD"
+    cv2.putText(disp, f"PLATE: {display_plate}", (px+5,py+60),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0,255,255), 2)
     cv2.putText(disp, label.upper(), (px+5,py+82),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1)
@@ -297,61 +282,18 @@ def draw_info_panel(disp, plate_text, label, plate_crop, frame_w):
                 cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0,0,255), 2)
 
 
-# ── ROLLING RAW-FRAME BUFFER (for per-violation clips) ───────────────────────
-class ViolationClipBuffer:
-    """
-    Buffers annotated (disp) frames.
-    trigger() flushes the pre-buffer to a new per-violation clip,
-    then push() keeps writing annotated frames until POST_FRAMES are done.
-    Re-encodes to H.264 in background when done.
-    """
-    PRE_FRAMES  = 90
-    POST_FRAMES = 90
-
-    def __init__(self):
-        self.buf     = deque(maxlen=self.PRE_FRAMES)
-        self._active = {}   # car_id -> {writer, remaining, path}
-
-    def push(self, frame):
-        self.buf.append(frame.copy())
-        for cid in list(self._active.keys()):
-            rec = self._active[cid]
-            rec['writer'].write(frame)
-            rec['remaining'] -= 1
-            if rec['remaining'] <= 0:
-                rec['writer'].release()
-                path = rec['path']
-                del self._active[cid]
-                threading.Thread(target=reencode_to_h264,
-                                 args=(path,), daemon=True).start()
-
-    def trigger(self, car_id, path, fps, size):
-        """Start a new per-violation clip using buffered + upcoming annotated frames."""
-        w = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*'mp4v'), fps, size)
-        for f in self.buf:
-            w.write(f)
-        self._active[car_id] = {'writer': w,
-                                 'remaining': self.POST_FRAMES,
-                                 'path': path}
-
-    def release_all(self):
-        for rec in list(self._active.values()):
-            try:
-                rec['writer'].release()
-                threading.Thread(target=reencode_to_h264,
-                                 args=(rec['path'],), daemon=True).start()
-            except Exception:
-                pass
-        self._active.clear()
 # ── HIGHLIGHTS CLIP WRITER ────────────────────────────────────────────────────
 class ViolationClipWriter:
-    PRE_FRAMES  = 90
-    POST_FRAMES = 90
+    SECONDS_PRE  = 3
+    SECONDS_POST = 3
 
     def __init__(self, path, fps, size):
+        pre_frames       = max(1, round(fps * self.SECONDS_PRE))
+        post_frames      = max(1, round(fps * self.SECONDS_POST))
+        self.post_frames = post_frames
         self.writer      = cv2.VideoWriter(
             path, cv2.VideoWriter_fourcc(*'mp4v'), fps, size)
-        self.pre_buf     = deque(maxlen=self.PRE_FRAMES)
+        self.pre_buf     = deque(maxlen=pre_frames)
         self.post_remain = 0
         self.active      = False
 
@@ -370,7 +312,7 @@ class ViolationClipWriter:
                 self.writer.write(f)
             self.pre_buf.clear()
             self.active = True
-        self.post_remain = self.POST_FRAMES
+        self.post_remain = self.post_frames
 
     def release(self):
         self.writer.release()
@@ -390,14 +332,6 @@ async def safe_send(ws, payload):
 @app.get("/", response_class=HTMLResponse)
 async def index():
     with open("templates/index.html") as f: return f.read()
-
-
-@app.get("/violation-clip/{session}/{filename}")
-async def violation_clip(session: str, filename: str):
-    path = os.path.join("sessions", session, "clips", filename)
-    if not os.path.exists(path):
-        return JSONResponse({"error": "not found"}, status_code=404)
-    return FileResponse(path, media_type="video/mp4")
 
 
 @app.get("/violation-snap/{session}/{filename}")
@@ -492,7 +426,6 @@ async def analyze(ws: WebSocket):
 
     session_dir = make_session_dir()
     snap_dir    = os.path.join(session_dir, "snapshots")
-    clips_dir   = os.path.join(session_dir, "clips")
     session_ts  = os.path.basename(session_dir)
     app.state.last_session = session_dir
     print(f"[ANALYZE] session: {session_dir}")
@@ -529,18 +462,21 @@ async def analyze(ws: WebSocket):
             clip_writer = ViolationClipWriter(out_video, fps, (w, h))
 
         vtl_scale = max(0.7, w / 900)
-        vcb       = ViolationClipBuffer()
-
         car_memory    = {}
         logged_plates = set()
-        last_disp     = {}
+        last_disp     = {}   # car_id -> {box, vc, sl, plate, pbox_rel, last_seen}
         active_panels = {}
+        resolved_plates = {}  # car_id -> latest resolved plate text
         frame_count   = 0
         lbs           = None
         lch           = []
         LEMA, LWIN    = 0.25, 6
         SEND          = 3
         YOLO_SKIP     = 3
+        # A car must be absent this many frames before its box is removed.
+        # Set to YOLO_SKIP+1 so skip frames never flicker, but gone cars clear fast.
+        STALE_FRAMES    = YOLO_SKIP + 1
+        last_good_frame = None  # holds last valid frame for live drop recovery
 
         while True:
             try:
@@ -555,16 +491,19 @@ async def analyze(ws: WebSocket):
             ret, frame = cap.read()
             if not ret or frame is None:
                 if is_live:
-                    await asyncio.sleep(0.05)
-                    continue
+                    # Network drop - reuse last good frame so display does not flicker
+                    if last_good_frame is not None:
+                        frame = last_good_frame.copy()
+                    else:
+                        await asyncio.sleep(0.03)
+                        continue
                 else:
                     break
+            elif is_live:
+                last_good_frame = frame.copy()
 
             frame_count += 1
             disp = frame.copy()
-
-            # Rolling buffer for per-violation clips
-            # vcb.push(disp)
 
             # Stop line
             cv2.line(disp, lp1, lp2, (0,0,255), 2)
@@ -578,27 +517,56 @@ async def analyze(ws: WebSocket):
             else:
                 effective_light = Counter(lch).most_common(1)[0][0] if lch else "UNKNOWN"
 
+            # ── Poll OCR results every frame (fast, no blocking) ──────────
+            OCR_TIMEOUT = 8.0  # seconds — force UNREAD if thread hangs
+            now_ts = datetime.now().timestamp()
+            for v in violations:
+                cid = v["car_id"]
+                if v["plate"] == "READING...":
+                    result = ocr_queue.get(cid)
+                    # Timed out — thread probably crashed silently on a bad crop
+                    if result == "READING..." and (now_ts - v.get("submitted_at", now_ts)) > OCR_TIMEOUT:
+                        result = "UNREAD"
+                        ocr_queue.results[cid] = "UNREAD"
+                        print(f"[OCR] timeout car={cid} — forcing UNREAD")
+                    if result != "READING...":
+                        v["plate"] = result
+                        resolved_plates[cid] = result
+                        if cid in active_panels:
+                            active_panels[cid]["plate"] = result
+                        if result not in ("UNREAD", "READING..."):
+                            logged_plates.add(result)
+                        await safe_send(ws, {
+                            "type":    "plate_update",
+                            "car_id":  cid,
+                            "plate":   result,
+                        })
+
             # ── Skip-frame path ───────────────────────────────────────────
             if frame_count % YOLO_SKIP != 0:
-                for cid, info in last_disp.items():
+                # Only draw cars seen within STALE_FRAMES — clears ghost boxes
+                for cid, info in list(last_disp.items()):
+                    if frame_count - info["last_seen"] > STALE_FRAMES:
+                        del last_disp[cid]
+                        continue
                     bx1,by1,bx2,by2 = info["box"]
+                    display_plate = resolved_plates.get(cid, info.get("plate"))
                     cv2.rectangle(disp, (bx1,by1), (bx2,by2), info["vc"], 2)
                     cv2.putText(disp, info["sl"], (bx1,by1-10),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, info["vc"], 2)
-                    if info.get("plate") and info.get("pbox_rel"):
+                    if display_plate and info.get("pbox_rel"):
                         r1,r2,r3,r4 = info["pbox_rel"]
-                        cb1,cb2,_,_ = info["box"]
-                        cv2.rectangle(disp, (cb1+r1,cb2+r2), (cb1+r3,cb2+r4), (0,255,255), 2)
-                        cv2.putText(disp, info["plate"], (cb1+r1,cb2+r2-8),
+                        cv2.rectangle(disp, (bx1+r1,by1+r2), (bx1+r3,by1+r4), (0,255,255), 2)
+                        cv2.putText(disp, display_plate, (bx1+r1,by1+r2-8),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0,255,255), 2)
-                    if lbs and not (vtl_enabled and vtl_color):
-                        lx1,ly1,lx2,ly2 = [int(v) for v in lbs]
-                        cur = Counter(lch).most_common(1)[0][0] if lch else "UNKNOWN"
-                        lc  = {"RED":(0,0,255),"AMBER":(0,165,255),
-                               "GREEN":(0,200,0)}.get(cur,(128,128,128))
-                        cv2.rectangle(disp, (lx1,ly1), (lx2,ly2), lc, 2)
-                        cv2.putText(disp, f"Light:{cur}", (lx1,ly1-10),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, lc, 2)
+                if lbs and not (vtl_enabled and vtl_color):
+                    lx1,ly1,lx2,ly2 = [int(v) for v in lbs]
+                    cur = Counter(lch).most_common(1)[0][0] if lch else "UNKNOWN"
+                    lc  = {"RED":(0,0,255),"AMBER":(0,165,255),
+                           "GREEN":(0,200,0)}.get(cur,(128,128,128))
+                    cv2.rectangle(disp, (lx1,ly1), (lx2,ly2), lc, 2)
+                    cv2.putText(disp, f"Light:{cur}", (lx1,ly1-10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, lc, 2)
 
                 for cid, panel in list(active_panels.items()):
                     if frame_count <= panel["until_frame"]:
@@ -609,21 +577,7 @@ async def analyze(ws: WebSocket):
 
                 if vtl_enabled and vtl_color:
                     draw_vtl_on_frame(disp, vtl_color, vtl_scale)
-                vcb.push(disp)
                 if clip_writer: clip_writer.push(disp)
-                for v in violations:
-                    cid = v["car_id"]
-                    if v["plate"] == "READING...":
-                        result = ocr_queue.get(cid)
-                        if result != "READING...":
-                            v["plate"] = result
-                            if result not in ("UNREAD", "READING..."):
-                                logged_plates.add(result)
-                            await safe_send(ws, {
-                                "type":    "plate_update",
-                                "car_id":  cid,
-                                "plate":   result,
-                            })
                 if frame_count % SEND == 0:
                     pct = 0 if is_live else round(frame_count/total_frames*100, 1)
                     await safe_send(ws, {
@@ -640,9 +594,26 @@ async def analyze(ws: WebSocket):
             # ── YOLO inference frame ──────────────────────────────────────
             results = model.track(frame, persist=True, conf=0.35, verbose=False)[0]
             if results.boxes.id is None:
+                # FIX: still draw last known boxes so no flicker on frames with no detections
+                for cid, info in last_disp.items():
+                    bx1,by1,bx2,by2 = info["box"]
+                    cv2.rectangle(disp, (bx1,by1), (bx2,by2), info["vc"], 2)
+                    cv2.putText(disp, info["sl"], (bx1,by1-10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, info["vc"], 2)
                 if vtl_enabled and vtl_color:
                     draw_vtl_on_frame(disp, vtl_color, vtl_scale)
                 if clip_writer: clip_writer.push(disp)
+                if frame_count % SEND == 0:
+                    pct = 0 if is_live else round(frame_count/total_frames*100, 1)
+                    await safe_send(ws, {
+                        "type":        "frame",
+                        "frame":       f2b(disp, 55),
+                        "progress":    pct,
+                        "frame_count": frame_count,
+                        "total":       total_frames if not is_live else "LIVE",
+                        "light_color": effective_light,
+                    })
+                    await asyncio.sleep(0)
                 continue
 
             nl, nc, bc = None, "UNKNOWN", 0
@@ -676,7 +647,9 @@ async def analyze(ws: WebSocket):
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, lc_bgr, 2)
 
             # ── Vehicle loop ──────────────────────────────────────────────
-            last_disp = {}
+            # Track which IDs YOLO saw this frame
+            current_frame_ids = set()
+
             for box, cls, tid in zip(results.boxes.xyxy,
                                      results.boxes.cls,
                                      results.boxes.id):
@@ -685,6 +658,7 @@ async def analyze(ws: WebSocket):
                     continue
                 car_id = int(tid)
                 x1, y1, x2, y2 = map(int, box)
+                current_frame_ids.add(car_id)
 
                 if car_id not in car_memory:
                     car_memory[car_id] = {
@@ -703,7 +677,6 @@ async def analyze(ws: WebSocket):
                 if mem["is_violator"] and not mem["logged"]:
                     cc = frame[y1:y2, x1:x2]
                     pr = plate_model.predict(cc, conf=0.25, verbose=False)[0]
-                    # Save plate crop to disk — OCR runs from file, not live crop
                     if len(pr.boxes.xyxy) > 0:
                         px1,py1,px2,py2 = map(int, pr.boxes.xyxy[0])
                         pcr = cc[py1:py2, px1:px2]
@@ -711,6 +684,8 @@ async def analyze(ws: WebSocket):
 
                 bp = Counter(mem["plates"]).most_common(1)[0][0] \
                      if mem["plates"] else None
+                # Use resolved plate if we have one
+                display_plate = resolved_plates.get(car_id, bp)
 
                 if mem["is_violator"]:
                     vc, sl = (0,0,255), "VIOLATION"
@@ -724,18 +699,19 @@ async def analyze(ws: WebSocket):
                 cv2.rectangle(disp, (x1,y1), (x2,y2), vc, 2)
                 cv2.putText(disp, sl, (x1,y1-10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, vc, 2)
-                if bp and mem["pbox_rel"]:
+                if display_plate and mem["pbox_rel"]:
                     r1,r2,r3,r4 = mem["pbox_rel"]
                     cv2.rectangle(disp, (x1+r1,y1+r2), (x1+r3,y1+r4), (0,255,255), 2)
-                    cv2.putText(disp, bp, (x1+r1,y1+r2-8),
+                    cv2.putText(disp, display_plate, (x1+r1,y1+r2-8),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0,255,255), 2)
 
                 last_disp[car_id] = {
-                    "box":      (x1,y1,x2,y2),
-                    "vc":       vc,
-                    "sl":       sl,
-                    "plate":    bp,
-                    "pbox_rel": mem["pbox_rel"],
+                    "box":       (x1,y1,x2,y2),
+                    "vc":        vc,
+                    "sl":        sl,
+                    "plate":     display_plate,
+                    "pbox_rel":  mem["pbox_rel"],
+                    "last_seen": frame_count,
                 }
 
                 # ── Log violation ─────────────────────────────────────────
@@ -746,27 +722,16 @@ async def analyze(ws: WebSocket):
                     snap_path = os.path.join(snap_dir, snap_name)
                     cv2.imwrite(snap_path, car_crop)
 
-                    plate_snap_name = None
                     if pcr is not None and pcr.size > 0:
-                        plate_snap_name = f"car{car_id}_f{frame_count}_plate.jpg"
-                        plate_snap_path = os.path.join(snap_dir, plate_snap_name)
-                        cv2.imwrite(plate_snap_path, pcr)
-                        ocr_queue.submit(car_id, plate_snap_path)
+                        ocr_queue.submit(car_id, pcr)
                     else:
                         ocr_queue.results[car_id] = "UNREAD"
-                        # No plate crop — notify frontend immediately so it doesn't hang on READING...
+                        resolved_plates[car_id] = "UNREAD"
                         await safe_send(ws, {
                             "type":   "plate_update",
                             "car_id": car_id,
                             "plate":  "UNREAD",
                         })
-
-                    clip_name = f"car{car_id}_f{frame_count}.mp4"
-                    clip_url  = None
-                    if not is_live:
-                        clip_path = os.path.join(clips_dir, clip_name)
-                        vcb.trigger(car_id, clip_path, fps, (w, h))
-                        clip_url = f"/violation-clip/{session_ts}/{clip_name}"
 
                     ts_str = datetime.now().strftime("%H:%M:%S")
                     ps     = "READING..."
@@ -778,7 +743,6 @@ async def analyze(ws: WebSocket):
                         "label":    label,
                         "snap":     f2b(car_crop, 85),
                         "snap_url": f"/violation-snap/{session_ts}/{snap_name}",
-                        "clip_url": clip_url,
                         "session":  session_ts,
                     }
                     violations.append(viol)
@@ -792,7 +756,25 @@ async def analyze(ws: WebSocket):
                     if clip_writer: clip_writer.trigger()
                     print(f"[ANALYZE] VIOLATION car={car_id} frame={frame_count} → OCR queued")
                     await safe_send(ws, {"type":"violation","data":viol})
-                    
+
+            # Draw boxes for cars YOLO missed this frame but seen recently
+            for cid, info in list(last_disp.items()):
+                if cid in current_frame_ids:
+                    continue
+                if frame_count - info["last_seen"] > STALE_FRAMES:
+                    del last_disp[cid]
+                    continue
+                bx1,by1,bx2,by2 = info["box"]
+                dp = resolved_plates.get(cid, info.get("plate"))
+                cv2.rectangle(disp, (bx1,by1), (bx2,by2), info["vc"], 2)
+                cv2.putText(disp, info["sl"], (bx1,by1-10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, info["vc"], 2)
+                if dp and info.get("pbox_rel"):
+                    r1,r2,r3,r4 = info["pbox_rel"]
+                    cv2.rectangle(disp, (bx1+r1,by1+r2), (bx1+r3,by1+r4), (0,255,255), 2)
+                    cv2.putText(disp, dp, (bx1+r1,by1+r2-8),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0,255,255), 2)
+
             for cid, panel in list(active_panels.items()):
                 if frame_count <= panel["until_frame"]:
                     draw_info_panel(disp, panel["plate"], panel["label"],
@@ -802,21 +784,8 @@ async def analyze(ws: WebSocket):
 
             if vtl_enabled and vtl_color:
                 draw_vtl_on_frame(disp, vtl_color, vtl_scale)
-            vcb.push(disp)
             if clip_writer: clip_writer.push(disp)
-            for v in violations:
-                cid = v["car_id"]
-                if v["plate"] == "READING...":
-                    result = ocr_queue.get(cid)
-                    if result != "READING...":
-                        v["plate"] = result
-                        if result not in ("UNREAD", "READING..."):
-                            logged_plates.add(result)
-                        await safe_send(ws, {
-                            "type":    "plate_update",
-                            "car_id":  cid,
-                            "plate":   result,
-                        })
+
             if frame_count % SEND == 0:
                 pct = 0 if is_live else round(frame_count/total_frames*100, 1)
                 await safe_send(ws, {
@@ -835,8 +804,6 @@ async def analyze(ws: WebSocket):
         app.state.analyzing = False
         if own_cap:     own_cap.release()
         if clip_writer: clip_writer.release()
-        try: vcb.release_all()
-        except Exception: pass
         ocr_queue.shutdown()
 
     await safe_send(ws, {"type":"done","total_violations":len(violations)})
@@ -852,8 +819,7 @@ async def download_video():
         if os.path.exists(path):
             return FileResponse(path, media_type="video/mp4",
                                 filename=f"violations_{ts}.mp4")
-    return FileResponse("output_final.mp4", media_type="video/mp4",
-                        filename="violations_highlight.mp4")
+    return JSONResponse({"error": "No video available"}, status_code=404)
 
 
 if __name__ == "__main__":

@@ -882,26 +882,6 @@
         display: block;
         filter: saturate(0.85) contrast(1.1);
       }
-      .viol-img-wrap::after {
-        content: "▶  VIEW DETAIL";
-        position: absolute;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        padding: 4px 8px;
-        background: rgba(0, 0, 0, 0.65);
-        font-family: var(--mono);
-        font-size: 9px;
-        letter-spacing: 2px;
-        color: var(--accent);
-        text-align: center;
-        opacity: 0;
-        transition: opacity 0.2s;
-      }
-      .viol-card:hover .viol-img-wrap::after {
-        opacity: 1;
-      }
-
       .viol-info {
         padding: 8px 10px;
       }
@@ -929,29 +909,6 @@
         50% {
           opacity: 0.4;
         }
-      }
-
-      /* clip pending indicator on card */
-      .clip-pending-badge {
-        display: inline-block;
-        font-family: var(--mono);
-        font-size: 8px;
-        letter-spacing: 1px;
-        color: var(--text-faint);
-        border: 1px solid var(--border);
-        border-radius: 2px;
-        padding: 1px 5px;
-        animation: reading-pulse 1.4s ease-in-out infinite;
-      }
-      .clip-ready-badge {
-        display: inline-block;
-        font-family: var(--mono);
-        font-size: 8px;
-        letter-spacing: 1px;
-        color: var(--green);
-        border: 1px solid rgba(0, 230, 118, 0.3);
-        border-radius: 2px;
-        padding: 1px 5px;
       }
 
       .viol-meta {
@@ -1099,163 +1056,6 @@
       .plate-cell {
         color: var(--accent);
         letter-spacing: 2px;
-      }
-
-      /* ── VIOLATION DETAIL MODAL ── */
-      #violDetailModal .modal {
-        width: 780px;
-        max-width: 96vw;
-        max-height: 90vh;
-      }
-      .detail-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 16px;
-        align-items: start;
-      }
-      .detail-grid > div {
-        display: flex;
-        flex-direction: column;
-      }
-      @media (max-width: 680px) {
-        .detail-grid {
-          grid-template-columns: 1fr;
-        }
-      }
-      .detail-section-label {
-        font-family: var(--mono);
-        font-size: 9px;
-        letter-spacing: 2px;
-        color: var(--text-dim);
-        text-transform: uppercase;
-        margin-bottom: 8px;
-        padding-bottom: 6px;
-        border-bottom: 1px solid var(--border);
-      }
-      .detail-video-wrap {
-        background: #000;
-        border: 1px solid var(--border);
-        border-radius: 4px;
-        overflow: hidden;
-        flex: 1;
-      }
-      .detail-video {
-        width: 100%;
-        display: block;
-        height: 240px;
-        object-fit: contain;
-        background: #000;
-      }
-
-      .detail-video-unavail {
-        width: 100%;
-        height: 240px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-family: var(--mono);
-        font-size: 10px;
-        color: var(--text-faint);
-        letter-spacing: 1px;
-        background: var(--bg3);
-        border: 1px solid var(--border);
-        border-radius: 4px;
-        text-align: center;
-        line-height: 2;
-      }
-
-      /* clip loading state in modal */
-      .detail-video-loading {
-        width: 100%;
-        height: 240px;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 12px;
-        background: var(--bg3);
-        border: 1px solid var(--border);
-        border-radius: 4px;
-        font-family: var(--mono);
-        font-size: 10px;
-        color: var(--text-dim);
-        letter-spacing: 1px;
-      }
-      .loading-bar-track {
-        width: 140px;
-        height: 2px;
-        background: var(--border);
-        border-radius: 2px;
-        overflow: hidden;
-      }
-      .loading-bar-fill {
-        height: 100%;
-        width: 30%;
-        background: var(--accent);
-        border-radius: 2px;
-        animation: loading-slide 1.2s ease-in-out infinite;
-      }
-      @keyframes loading-slide {
-        0% {
-          margin-left: 0%;
-          width: 30%;
-        }
-        50% {
-          margin-left: 70%;
-          width: 30%;
-        }
-        100% {
-          margin-left: 0%;
-          width: 30%;
-        }
-      }
-
-      .detail-snap-wrap {
-        background: #070a0e;
-        border: 1px solid var(--border);
-        border-radius: 4px;
-        overflow: hidden;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        height: 240px;
-        flex: 1;
-      }
-      .detail-snap {
-        max-width: 100%;
-        max-height: 240px;
-        object-fit: contain;
-        display: block;
-        filter: saturate(0.9) contrast(1.05);
-      }
-      .detail-meta-strip {
-        margin-top: 16px;
-        display: flex;
-        gap: 10px;
-        flex-wrap: wrap;
-        align-items: center;
-      }
-      .detail-plate-big {
-        font-family: var(--mono);
-        font-size: 20px;
-        color: var(--accent);
-        letter-spacing: 4px;
-        background: rgba(0, 212, 255, 0.06);
-        border: 1px solid rgba(0, 212, 255, 0.2);
-        border-radius: 4px;
-        padding: 6px 14px;
-        flex-shrink: 0;
-      }
-      .detail-plate-big.unread {
-        color: var(--text-dim);
-        border-color: var(--border);
-        background: transparent;
-      }
-      .detail-plate-big.reading {
-        color: var(--amber);
-        border-color: rgba(255, 170, 0, 0.3);
-        background: rgba(255, 170, 0, 0.05);
-        animation: reading-pulse 1s ease-in-out infinite;
       }
 
       .cam-row {
@@ -1519,32 +1319,6 @@
       </div>
     </div>
 
-    <!-- VIOLATION DETAIL MODAL -->
-    <div class="modal-overlay" id="violDetailModal">
-      <div class="modal">
-        <div class="modal-header">
-          <div class="modal-title" id="detailTitle">VIOLATION DETAIL</div>
-          <button class="modal-close" id="detailClose">✕</button>
-        </div>
-        <div class="modal-body">
-          <div class="detail-meta-strip" id="detailMeta"></div>
-          <div style="height: 16px"></div>
-          <div class="detail-grid">
-            <div>
-              <div class="detail-section-label">
-                📹 Violation Clip (3s before → 3s after)
-              </div>
-              <div id="detailVideoSlot"></div>
-            </div>
-            <div>
-              <div class="detail-section-label">🖼 Full Scene Snapshot</div>
-              <div class="detail-snap-wrap" id="detailSnapSlot"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <script>
       // ── CLOCK ──
       function updateClock() {
@@ -1575,8 +1349,6 @@
         vehiclesSeen: new Set(),
         lastCamIp: "",
         vtl: { enabled: false, color: null },
-        // which violation is currently open in the detail modal
-        openCarId: null,
       };
 
       // ── REFS ──
@@ -1628,14 +1400,6 @@
       const btnRed = document.getElementById("btnRed");
       const btnAmber = document.getElementById("btnAmber");
       const btnGreen = document.getElementById("btnGreen");
-
-      // Detail modal
-      const violDetailModal = document.getElementById("violDetailModal");
-      const detailClose = document.getElementById("detailClose");
-      const detailTitle = document.getElementById("detailTitle");
-      const detailMeta = document.getElementById("detailMeta");
-      const detailVideoSlot = document.getElementById("detailVideoSlot");
-      const detailSnapSlot = document.getElementById("detailSnapSlot");
 
       // ── HELPERS ──
       function setStatus(label, mode) {
@@ -2171,37 +1935,6 @@
                 plateEl.className = "viol-plate" + (isUnread ? " unread" : "");
               }
             }
-            // Sync modal if open for this car
-            if (state.openCarId === car_id) {
-              const bigPlate = detailMeta.querySelector(".detail-plate-big");
-              if (bigPlate) {
-                const isUnread = plate === "UNREAD";
-                bigPlate.textContent = isUnread ? "PLATE UNREAD" : plate;
-                bigPlate.className =
-                  "detail-plate-big" + (isUnread ? " unread" : "");
-              }
-            }
-          }
-
-          // ── Background clip writer finished — swap in the video ──
-          if (msg.type === "clip_ready") {
-            const { car_id, clip_url } = msg;
-            const v = state.violationMap[car_id];
-            if (v) v.clip_url = clip_url;
-
-            // Update badge on the card
-            const card = state.cardMap[car_id];
-            if (card) {
-              const badge = card.querySelector(".clip-pending-badge");
-              if (badge) {
-                badge.className = "clip-ready-badge";
-                badge.textContent = "● CLIP READY";
-              }
-            }
-            // If this car's detail is open, swap loading → video player
-            if (state.openCarId === car_id) {
-              renderDetailVideo(clip_url);
-            }
           }
 
           if (msg.type === "done") finishAnalysis(false);
@@ -2261,12 +1994,6 @@
           plateText = v.plate;
         }
 
-        const clipBadge = v.clip_url
-          ? `<span class="clip-ready-badge">● CLIP READY</span>`
-          : state.isLive
-            ? ""
-            : `<span class="clip-pending-badge">⟳ CLIP SAVING</span>`;
-
         card.innerHTML = `
           <div class="viol-img-wrap">
             <img class="viol-img" src="data:image/jpeg;base64,${v.snap}" alt="violation scene"/>
@@ -2277,111 +2004,13 @@
               <span class="viol-tag type">${v.label}</span>
               <span class="viol-tag time">${v.time}</span>
               <span class="viol-tag frame">F${v.frame}</span>
-              ${clipBadge}
             </div>
           </div>`;
 
-        card.addEventListener("click", () => openDetail(v.car_id));
         state.cardMap[v.car_id] = card;
         violationsScroll.prepend(card);
         setTimeout(() => card.classList.remove("new-flash"), 1500);
       }
-
-      // ── DETAIL MODAL ──
-      function openDetail(carId) {
-        const v = state.violationMap[carId];
-        if (!v) return;
-        state.openCarId = carId;
-
-        const isPending = v.plate === "READING...";
-        const isUnread = v.plate === "UNREAD";
-        detailTitle.textContent = `VIOLATION · ${v.time}  F${v.frame}`;
-
-        let plateClass, plateText;
-        if (isPending) {
-          plateClass = "detail-plate-big reading";
-          plateText = "⟳ READING...";
-        } else if (isUnread) {
-          plateClass = "detail-plate-big unread";
-          plateText = "PLATE UNREAD";
-        } else {
-          plateClass = "detail-plate-big";
-          plateText = v.plate;
-        }
-
-        detailMeta.innerHTML = `
-          <div class="${plateClass}">${plateText}</div>
-          <span class="viol-tag type" style="font-size:11px;padding:4px 10px">${v.label.toUpperCase()}</span>
-          <span class="viol-tag time" style="font-size:11px;padding:4px 10px">🕐 ${v.time}</span>
-          <span class="viol-tag frame" style="font-size:11px;padding:4px 10px">FRAME ${v.frame}</span>`;
-
-        // Video slot — lazy: only render video/player on click
-        detailVideoSlot.innerHTML = "";
-        if (v.clip_url) {
-          renderDetailVideo(v.clip_url);
-        } else if (state.isLive) {
-          detailVideoSlot.innerHTML = `<div class="detail-video-unavail">⚠ No clip available<br/>(live mode — clips need file input)</div>`;
-        } else {
-          // Still being written in background — show animated loader
-          detailVideoSlot.innerHTML = `
-            <div class="detail-video-loading">
-              <span>⟳ SAVING CLIP…</span>
-              <div class="loading-bar-track"><div class="loading-bar-fill"></div></div>
-              <span style="font-size:9px;color:var(--text-faint)">will appear automatically</span>
-            </div>`;
-        }
-
-        // Snapshot — use server URL (already saved), fall back to base64
-        detailSnapSlot.innerHTML = "";
-        const snapImg = document.createElement("img");
-        snapImg.className = "detail-snap";
-        snapImg.alt = "Full violation snapshot";
-        if (v.snap_url) {
-          snapImg.src = v.snap_url;
-          snapImg.onerror = () => {
-            snapImg.src = "data:image/jpeg;base64," + v.snap;
-          };
-        } else {
-          snapImg.src = "data:image/jpeg;base64," + v.snap;
-        }
-        detailSnapSlot.appendChild(snapImg);
-
-        violDetailModal.classList.add("open");
-      }
-
-      // Render the video player (called on open and when clip_ready arrives)
-      function renderDetailVideo(clipUrl) {
-        detailVideoSlot.innerHTML = "";
-        const vid = document.createElement("video");
-        vid.className = "detail-video";
-        vid.controls = true;
-        vid.autoplay = false;
-        vid.preload = "metadata";
-        vid.style.border = "1px solid var(--border)";
-        vid.style.borderRadius = "4px";
-        const src = document.createElement("source");
-        src.src = clipUrl;
-        src.type = "video/mp4";
-        vid.appendChild(src);
-        vid.onerror = () => {
-          detailVideoSlot.innerHTML = `<div class="detail-video-unavail">⚠ Clip unavailable</div>`;
-        };
-        detailVideoSlot.appendChild(vid);
-      }
-
-      function closeDetailModal() {
-        const vid = detailVideoSlot.querySelector("video");
-        if (vid) {
-          vid.pause();
-          vid.currentTime = 0;
-        }
-        violDetailModal.classList.remove("open");
-        state.openCarId = null;
-      }
-      detailClose.addEventListener("click", closeDetailModal);
-      violDetailModal.addEventListener("click", (e) => {
-        if (e.target === violDetailModal) closeDetailModal();
-      });
 
       // ── ALERT FLASH ──
       let alertTimeout;

@@ -1,204 +1,302 @@
 # 🚦 Smart Traffic Surveillance System
 
-An intelligent traffic monitoring system that detects traffic light violations using computer vision and machine learning. The system automatically identifies vehicles that run red lights, reads license plates, and generates violation reports.
+> An intelligent traffic monitoring system that detects red-light violations using computer vision and machine learning. The system identifies violating vehicles, reads their license plates, and generates detailed violation reports — automatically.
+
+---
+
+## 📽️ Demo Video
+
+https://github.com/YOUR_USERNAME/YOUR_REPO/assets/YOUR_ASSET_ID/demo_video.mp4
+
+> **To publish:** Go to your GitHub repo → click any Issue or the README edit box → drag and drop `demo_video.mp4` into the text area → GitHub will generate a permanent URL. Paste that URL here and delete this tip.
+
+---
+
+## 🎬 Sample Output Video
+
+https://github.com/YOUR_USERNAME/YOUR_REPO/assets/YOUR_ASSET_ID/output_video.mp4
+
+> **To publish:** Same as above — drag `output_video.mp4` into a GitHub Issue/PR text box, copy the generated URL, paste it here.
+
+---
 
 ## ✨ Features
 
-- 🎥 **Real-time Video Processing**: Analyze traffic footage frame by frame
-- 🚦 **Traffic Light Detection**: Automatically detect red, yellow, and green lights
-- 🚗 **Vehicle Tracking**: Track cars, trucks, buses, and motorcycles
-- 📸 **License Plate Recognition**: Read and extract vehicle license plates
-- ⚠️ **Violation Detection**: Identify red light violations with stop line crossing
-- 📊 **Live Violation Display**: Real-time grid view of detected violations
-- 📁 **Export Capabilities**: Download CSV reports and processed videos
+- 🎥 **Real-time Video Processing** — Analyze pre-recorded traffic footage frame by frame
+- 🚦 **Traffic Light Detection** — Automatically detect red, yellow, and green lights via HSV color analysis
+- 🚗 **Vehicle Tracking** — Track cars, trucks, buses, and motorcycles using YOLO + ByteTrack
+- 📸 **License Plate Recognition** — Multi-variant EasyOCR preprocessing pipeline
+- ⚠️ **Violation Detection** — Flags vehicles that cross the stop line while the light is red
+- 🖥️ **Live Preview Mode** — Connect an IP camera (DroidCam/similar) for real-time monitoring
+- 📊 **Live Violation Grid** — Real-time display of detected violations in the browser
+- 📁 **Export Capabilities** — Download CSV reports and a highlights clip video
+- 🔴 **Virtual Traffic Light (VTL)** — Manual override to simulate a red/amber/green signal when the camera cannot see the physical light
+
+---
 
 ## 🛠️ Technology Stack
 
-- **FastAPI**: High-performance web framework for the backend API
-- **HTML/CSS/JavaScript**: Custom frontend with real-time WebSocket communication
-- **OpenCV**: Computer vision and image processing
-- **YOLO**: Object detection (vehicles and license plates)
-- **EasyOCR**: Optical character recognition for license plates
-- **NumPy**: Numerical operations and array handling
-- **Uvicorn**: ASGI server for FastAPI
+| Layer             | Technology                       |
+| ----------------- | -------------------------------- |
+| Backend API       | FastAPI + Uvicorn (ASGI)         |
+| Real-time Comms   | WebSockets                       |
+| Computer Vision   | OpenCV                           |
+| Object Detection  | YOLOv8 (ultralytics)             |
+| Vehicle Tracking  | ByteTrack (built into YOLO)      |
+| License Plate OCR | EasyOCR (multi-variant pipeline) |
+| Frontend          | Vanilla HTML / CSS / JavaScript  |
+| Numerical Ops     | NumPy                            |
+
+---
 
 ## 📋 Prerequisites
 
-- Python 3.8 or higher
-- CUDA-compatible GPU (recommended for better performance)
+- Python **3.8** or higher
+- CUDA-compatible GPU — **strongly recommended** (CPU works but is significantly slower)
+- ~4 GB disk space for models on first run
+
+---
 
 ## 🚀 Installation
 
-1. **Clone the repository**
+### 1. Clone the repository
 
-   ```bash
-   git clone https://github.com/yourusername/smart-surveillance-system.git
-   cd smart-surveillance-system
-   ```
+```bash
+git clone https://github.com/yourusername/smart-surveillance-system.git
+cd smart-surveillance-system
+```
 
-2. **Create virtual environment**
+### 2. Create and activate a virtual environment
 
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
+```bash
+python -m venv venv
+source venv/bin/activate        # Linux / macOS
+venv\Scripts\activate           # Windows
+```
 
-3. **Install dependencies**
+### 3. Install dependencies
 
-   ```bash
-   pip install -r requirements.txt
-   ```
+```bash
+pip install -r requirements.txt
+```
 
-4. **Download required models** (if not included in repo)
+> **GPU users:** Make sure your CUDA version matches the `torch` wheel. Visit https://pytorch.org/get-started/locally/ if you need a specific build.
 
-   ```bash
-   # These will be downloaded automatically on first run
-   # Or manually place them in the project directory:
-   # - yolov8s.pt (YOLOv8 small model)
-   # - plate_detector.pt (License plate detection model)
-   ```
+### 4. Model weights
 
-5. **Run the application**
+The two YOLO models download automatically on first run:
 
-   ```bash
-   uvicorn app:app --reload --host 0.0.0.0 --port 8000
-   ```
+| File                | Purpose                                                            |
+| ------------------- | ------------------------------------------------------------------ |
+| `yolov8s.pt`        | Vehicle + traffic-light detection (auto-downloaded by ultralytics) |
+| `plate_detector.pt` | License plate bounding-box detection — **you must supply this**    |
 
-6. **Open in browser**
-   Navigate to `http://localhost:8000`
+Place `plate_detector.pt` in the project root before starting. If you have a custom model trained on your region's plates, drop it in the same location and rename it accordingly (or update the path in `app.py → get_models()`).
+
+### 5. Run the server
+
+```bash
+uvicorn app:app --reload --host 0.0.0.0 --port 8000
+```
+
+### 6. Open in browser
+
+```
+http://localhost:8000
+```
+
+---
 
 ## 🎯 How to Use
 
-1. **Start the server**
+### Step-by-step
 
-   ```bash
-   uvicorn app:app --reload --host 0.0.0.0 --port 8000
-   ```
+1. **Upload a video** — click "Browse files" or drag-and-drop. Supported: MP4, AVI, MOV, MKV (max ~100 MB recommended).
+2. **Draw the stop line** — on the first frame preview, click and drag to mark where vehicles must stop. Use the undo/redo/delete buttons to adjust.
+3. **Configure confidence** — the slider controls YOLO detection confidence (0.2–0.8). Lower values catch more vehicles but increase false positives.
+4. **Virtual Traffic Light (optional)** — if the physical traffic light is not visible in your footage, enable the VTL toggle and set the colour manually to simulate signal state.
+5. **Start analysis** — click ▶️ **Start Analysis**. Live violation cards will appear as the system processes each frame.
+6. **Review results** — once complete, download the CSV report and/or the highlights clip from the results panel.
 
-2. **Open the web interface**
-   - Navigate to `http://localhost:8000`
-   - The web interface will load automatically
+### Live camera mode (IP camera)
 
-3. **Upload a video**
-   - Click "Browse files" or drag & drop your traffic video
-   - Supported formats: MP4, AVI, MOV, MKV
-   - Wait for the video to upload and process
+1. Install [DroidCam](https://www.dev47apps.com/) (or any IP camera app) on your phone.
+2. In the web UI, enter the phone's local IP and click **Connect**.
+3. Draw the stop line on the live preview, then click **Start Analysis**.
 
-4. **Draw the stop line**
-   - On the first frame, click and drag to draw a stop line
-   - This line represents where vehicles should stop at red lights
-   - Use the undo/redo/delete buttons if needed
-
-5. **Configure settings**
-   - Adjust detection confidence threshold (0.2-0.8)
-   - Lower values detect more but may include false positives
-
-6. **Start analysis**
-   - Click "▶️ Start Analysis" to begin processing
-   - Watch live violations appear in the grid below
-   - Monitor the progress bar and frame counter
-
-7. **Review results**
-   - View violation statistics and detailed reports
-   - Download CSV file with violation data
-   - Download processed video with violation overlays
-   - Browse violation snapshots in grid view
-
-## 📊 Output Files
-
-- **`output_final.mp4`**: Processed video with violation overlays
-- **`violations.csv`**: Detailed violation report with timestamps
-- **`violations_snapshots/`**: Individual violation images
-
-## 🎨 UI Features
-
-- **Modern Web Interface**: Custom HTML/CSS frontend with dark theme
-- **Real-time WebSocket**: Live updates during video processing
-- **Live Violation Grid**: Real-time display of up to 5 violations
-- **Violation Snapshots**: 3-column grid of all detected violations
-- **Info Panels**: On-screen violation details with plate zoom
-- **Responsive Design**: Works on desktop and tablet devices
-- **Interactive Canvas**: Draw stop lines with undo/redo functionality
-
-## 🔧 Configuration
-
-### Detection Parameters
-
-- **Confidence Threshold**: Minimum confidence for object detection
-- **Panel Duration**: How long violation panels stay on screen (90 frames)
-- **Grid Layout**: Configurable grid columns for violations
-
-### Customization
-
-You can modify detection parameters in the code:
-
-- Vehicle classes to detect
-- Traffic light color thresholds
-- Plate recognition settings
-- Panel styling and positioning
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-1. **"No GPU detected"**: The system works on CPU but will be slower
-2. **"Model not found":** Models download automatically on first run
-3. **"WebSocket connection failed":** Refresh the page and ensure port 8000 is available
-4. **"Video upload fails":** Check file format and size (max 100MB recommended)
-5. **"Canvas not responsive":** Ensure JavaScript is enabled in browser
-
-### Performance Tips
-
-- Use GPU for faster processing
-- Lower confidence threshold for more detections
-- Reduce video resolution for faster analysis
-- Close other applications to free up memory
+---
 
 ## 📁 Project Structure
 
 ```
 smart-surveillance-system/
-├── app.py                 # FastAPI backend application
-├── requirements.txt       # Python dependencies
-├── README.md             # This file
-├── .gitignore            # Git ignore file
-├── yolov8s.pt            # YOLO model (auto-download)
-├── plate_detector.pt     # License plate model (auto-download)
-├── static/               # Static assets (CSS, JS, images)
-├── templates/            # HTML templates
-│   └── index.html        # Main frontend interface
-├── violations_snapshots/ # Generated violation images
-└── output_final.mp4      # Processed video output
+├── app.py                     # FastAPI backend — all routes, WebSocket handlers, CV logic
+├── requirements.txt           # Python dependencies
+├── README.md                  # This file
+├── .gitignore
+├── yolov8s.pt                 # Auto-downloaded on first run
+├── plate_detector.pt          # Supply manually (see Installation)
+├── templates/
+│   └── index.html             # Single-page frontend
+├── static/                    # Static assets (CSS, JS, images)
+├── sessions/                  # Auto-created per analysis run
+│   └── YYYY-MM-DD_HH-MM-SS/
+│       ├── snapshots/         # Per-vehicle violation images
+│       └── highlights.mp4     # Violation clip (±3 s around each event)
+└── violations.csv             # Last-run violation report (written by frontend download)
 ```
+
+### Key sections inside `app.py`
+
+| Section               | What it does                                                                                   |
+| --------------------- | ---------------------------------------------------------------------------------------------- |
+| `get_models()`        | Lazy-loads YOLO + EasyOCR once; shared across all requests                                     |
+| `get_light_color()`   | HSV-based traffic light colour classifier (top/mid/bottom thirds)                              |
+| `draw_vtl_on_frame()` | Renders the virtual traffic light overlay onto frames                                          |
+| `crosses_line()`      | Cross-product geometry test — checks if a vehicle bounding box straddles the stop line         |
+| `read_plate()`        | Multi-variant OCR: scales, sharpens, thresholds, tries beam-search EasyOCR on 8 image variants |
+| `PlateOCRQueue`       | Background `ThreadPoolExecutor` so OCR never blocks the main async loop                        |
+| `ViolationClipWriter` | Ring-buffer that saves ±3 s of footage around each violation event                             |
+| `/ws/analyze`         | Main WebSocket — frame loop, YOLO tracking, violation logic, OCR polling                       |
+| `/ws/live-preview`    | Separate WebSocket for IP-camera live preview (no analysis)                                    |
+
+---
+
+## 📊 Output Files
+
+| File                                     | Description                                                         |
+| ---------------------------------------- | ------------------------------------------------------------------- |
+| `sessions/<timestamp>/highlights.mp4`    | Short clip of all violation events (±3 s each)                      |
+| `sessions/<timestamp>/snapshots/`        | Individual JPEG snapshots per violating vehicle                     |
+| `violations.csv` (downloaded in browser) | Timestamped violation log: frame, time, car ID, plate, vehicle type |
+
+---
+
+## ⚙️ Configuration Reference
+
+All tunable constants are at the top of the `analyze()` WebSocket handler in `app.py`:
+
+| Constant            | Default         | Effect                                                   |
+| ------------------- | --------------- | -------------------------------------------------------- |
+| `YOLO_SKIP`         | `3`             | Run YOLO every N frames (higher = faster, less accurate) |
+| `STALE_FRAMES`      | `YOLO_SKIP + 1` | Frames before a missing vehicle box is cleared           |
+| `SEND`              | `3`             | Send a frame to the browser every N frames               |
+| `LEMA`              | `0.25`          | EMA smoothing factor for traffic-light bounding box      |
+| `LWIN`              | `6`             | Rolling window size for majority-vote light colour       |
+| `OCR_TIMEOUT`       | `8.0 s`         | Force "UNREAD" if OCR thread hangs longer than this      |
+| Panel duration      | `90 frames`     | How long the violation info panel stays on screen        |
+| ViolationClipWriter | `±3 s`          | Pre/post buffer around each violation event              |
+
+---
+
+## ⚠️ Known Limitations
+
+These are **documented bugs and design gaps** — not undocumented surprises. Future contributors should be aware of all of them.
+
+### 1. Stop line is drawn manually
+
+The stop line must be drawn by the user on the first frame before analysis begins. The system has **no automatic stop-line detection**. In real-world deployments, a properly-trained semantic segmentation or lane-detection model should locate the stop line automatically — similar to how ADAS/self-driving systems identify road markings.
+
+### 2. Duplicate snapshots for stationary vehicles
+
+A violation is logged the first time a tracked vehicle crosses the stop line (`mem["logged"] = True` prevents re-logging for the same car ID). However, if YOLO loses track of the vehicle and reassigns it a new ID, the system will treat it as a new vehicle and log another violation. This is a tracker drift issue — the `logged` flag is ID-bound, not position-bound.
+
+### 3. OCR runs live during processing (not post-processing)
+
+Plate reading happens in a background thread the moment a violation is detected, using a single frame crop. This means OCR sometimes receives a blurry, occluded, or motion-blurred plate crop, producing "UNREAD" results. A more accurate approach would be to **collect all violation snapshots first, then run OCR in bulk at the end of the video** — choosing the sharpest crop across multiple frames for each vehicle ID.
+
+### 4. Traffic light colour relies on position heuristics
+
+`get_light_color()` discards any traffic light whose top edge is below 45% of the frame height (`y1 > frame_h * 0.45`). This heuristic works for overhead lights but fails for side-mounted, near-camera, or unusual setups.
+
+### 5. No persistent session management
+
+Sessions are stored as timestamped folders. There is no cleanup mechanism — disk usage grows unbounded over time. Add a retention policy (e.g. keep last N sessions, or delete sessions older than X days).
+
+---
+
+## 🔮 Suggested Improvements for Future Contributors
+
+These are direct improvements the original team identified. They are listed in approximate order of impact.
+
+### High priority
+
+**A. Automatic stop-line detection**
+Replace manual drawing with a computer-vision pipeline that detects the stop line from the video. Approaches include:
+
+- Hough line transform on the first frame (fast, works for straight markings)
+- A fine-tuned segmentation model (e.g. YOLOv8-seg trained on road markings)
+- Perspective-transform + lane-detection as used in self-driving datasets (BDD100K, CULane)
+
+**B. Post-processing OCR for higher plate accuracy**
+Instead of reading plates live during analysis, collect all violation snapshots into `sessions/<ts>/snapshots/`. After the video finishes processing, iterate over all snapshots, run EasyOCR on every frame where that car ID appears, and pick the result with the highest confidence score. This decouples OCR quality from processing speed and allows re-reading without reprocessing the video.
+
+**C. Deduplicate violations by spatial proximity, not just tracker ID**
+Add a check: if a new violation bounding box overlaps significantly (IoU > 0.5) with an already-logged violation at a similar timestamp, skip it. This handles tracker drift without relying solely on YOLO's ID persistence.
+
+### Medium priority
+
+**D. Automatic traffic-light localisation**
+Train or fine-tune a dedicated traffic-light detector (YOLO or SSD) that outputs not just the box but also the signal state. Remove the HSV colour heuristic in favour of a classifier head trained on labelled traffic-light images from your target geography.
+
+**E. Session management and cleanup**
+Add a background task or startup hook that deletes sessions older than a configurable threshold (e.g. 7 days). Expose a `/sessions` API endpoint to list, download, and delete past sessions from the UI.
+
+**F. GPU memory management**
+Currently `get_models()` loads all three models (YOLO vehicle, YOLO plate, EasyOCR) into memory on first request and never unloads them. Add model unloading or quantisation (INT8 via TensorRT) if running on a GPU with limited VRAM.
+
+### Lower priority / Nice-to-have
+
+**G. Replace EasyOCR with a faster OCR engine**
+EasyOCR is accurate but slow. For production throughput, consider [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) (faster GPU inference) or a region-specific ALPR model such as [OpenALPR](https://github.com/openalpr/openalpr) or [fast-alpr](https://github.com/Muhammad-Zaka/fast-alpr).
+
+**H. Front-end session history panel**
+Add a sidebar that lists all previous sessions so users can review past analyses without needing filesystem access.
+
+**I. Docker packaging**
+Wrap the app in a `Dockerfile` with CUDA base image, model pre-download step, and a `docker-compose.yml` for easy deployment.
+
+---
+
+## 🐛 Troubleshooting
+
+| Symptom                          | Likely cause                     | Fix                                                                               |
+| -------------------------------- | -------------------------------- | --------------------------------------------------------------------------------- |
+| "No GPU detected"                | CUDA not available               | System works on CPU — just slower. Install CUDA drivers and matching torch wheel. |
+| "Model not found"                | `plate_detector.pt` missing      | Place the model file in the project root (see Installation §4).                   |
+| "WebSocket connection failed"    | Port conflict or page cache      | Refresh the page; confirm port 8000 is free.                                      |
+| "Video upload fails"             | File too large or wrong format   | Keep videos under 100 MB; use MP4/H.264.                                          |
+| All plates show "UNREAD"         | Poor crop quality or small plate | Lower detection confidence; use higher-resolution input video.                    |
+| Violations logged multiple times | Tracker ID reassignment          | Known limitation — see Limitations §2.                                            |
+| High CPU/slow processing         | No GPU / low `YOLO_SKIP`         | Increase `YOLO_SKIP` to 5–6; use GPU if available.                                |
+
+---
 
 ## 🤝 Contributing
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+2. Create a feature branch: `git checkout -b feature/auto-stopline`
+3. Commit with a clear message: `git commit -m 'feat: automatic stop-line detection via Hough transform'`
+4. Push and open a Pull Request against `main`
 
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- [Ultralytics](https://ultralytics.com/) for YOLO models
-- [EasyOCR](https://github.com/JaidedAI/EasyOCR) for license plate recognition
-- [FastAPI](https://fastapi.tiangolo.com/) for the web framework
-- [OpenCV](https://opencv.org/) for computer vision
-- [Uvicorn](https://www.uvicorn.org/) for the ASGI server
-
-## 📞 Support
-
-If you encounter any issues or have questions:
-
-- Open an issue on GitHub
-- Check the troubleshooting section above
-- Review the code comments for additional details
+Please document any new configuration constants in the **Configuration Reference** table above, and update the **Limitations** section if your PR resolves one.
 
 ---
 
-**⚠️ Disclaimer**: This system is for educational and demonstration purposes. For real-world traffic enforcement, ensure compliance with local regulations and privacy laws.
+## 📄 License
+
+MIT License — see [LICENSE](LICENSE) for details.
+
+---
+
+## 🙏 Acknowledgments
+
+- [Ultralytics](https://ultralytics.com/) — YOLOv8 and ByteTrack
+- [JaidedAI / EasyOCR](https://github.com/JaidedAI/EasyOCR) — license plate OCR
+- [FastAPI](https://fastapi.tiangolo.com/) — async web framework
+- [OpenCV](https://opencv.org/) — computer vision primitives
+- [Uvicorn](https://www.uvicorn.org/) — ASGI server
+
+---
+
+> **⚠️ Disclaimer:** This system is for educational and research purposes. For real-world traffic enforcement, ensure full compliance with local privacy laws, data-protection regulations, and law-enforcement guidelines before deployment.
