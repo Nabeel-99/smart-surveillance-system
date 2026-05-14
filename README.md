@@ -1,7 +1,3 @@
-
-
-
-
 # 🚦 Smart Traffic Surveillance System
 
 > An intelligent traffic monitoring system that detects red-light violations using computer vision and machine learning. The system identifies violating vehicles, reads their license plates, and generates detailed violation reports — automatically.
@@ -11,7 +7,6 @@
 ## 📽️ Demo Video
 
 https://github.com/user-attachments/assets/66e8b459-0ebf-4d3d-b917-913fdba91d9f
-
 
 ---
 
@@ -99,6 +94,7 @@ Place `plate_detector.pt` in the project root before starting. If you have a cus
 ```bash
 uvicorn app:app --reload --host 0.0.0.0 --port 8000
 ```
+
 or
 
 ```bash
@@ -118,7 +114,7 @@ http://localhost:8000
 ### Step-by-step
 
 1. **Upload a video** — click "Browse files" or drag-and-drop. Supported: MP4, AVI, MOV, MKV (max ~100 MB recommended).
-2. **Draw the stop line** — on the first frame preview, click the starting point and drag to mark where vehicles must stop then release. 
+2. **Draw the stop line** — on the first frame preview, click the starting point and drag to mark where vehicles must stop then release.
 3. **Virtual Traffic Light (optional)** — if the physical traffic light is not visible in your footage, enable the VTL toggle and set the colour manually to simulate signal state.
 4. **Start analysis** — click ▶️ **Start Analysis**. Live violation cards will appear as the system processes each frame.
 5. **Review results** — once complete, download the CSV report and/or the highlights clip from the results panel.
@@ -295,6 +291,10 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 ## 🙏 Acknowledgments
+
+This project was developed under the auspices of the **National Information Technology Development Agency (NITDA)** as part of their initiative to support technology innovation and capacity building in Nigeria.
+
+We extend our sincere gratitude to the facilitators and mentors who guided the team throughout the development of this project. Their support, feedback, and technical insight were instrumental in bringing this system to life.
 
 - [Ultralytics](https://ultralytics.com/) — YOLOv8 and ByteTrack
 - [JaidedAI / EasyOCR](https://github.com/JaidedAI/EasyOCR) — license plate OCR
