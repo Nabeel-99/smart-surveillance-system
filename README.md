@@ -1,3 +1,7 @@
+
+
+
+
 # 🚦 Smart Traffic Surveillance System
 
 > An intelligent traffic monitoring system that detects red-light violations using computer vision and machine learning. The system identifies violating vehicles, reads their license plates, and generates detailed violation reports — automatically.
@@ -6,17 +10,14 @@
 
 ## 📽️ Demo Video
 
-https://github.com/YOUR_USERNAME/YOUR_REPO/assets/YOUR_ASSET_ID/demo_video.mp4
 
-> **To publish:** Go to your GitHub repo → click any Issue or the README edit box → drag and drop `demo_video.mp4` into the text area → GitHub will generate a permanent URL. Paste that URL here and delete this tip.
+https://github.com/user-attachments/assets/d255bab2-2b13-4795-a85d-b555d6d7f234
 
 ---
 
 ## 🎬 Sample Output Video
 
-https://github.com/YOUR_USERNAME/YOUR_REPO/assets/YOUR_ASSET_ID/output_video.mp4
-
-> **To publish:** Same as above — drag `output_video.mp4` into a GitHub Issue/PR text box, copy the generated URL, paste it here.
+https://github.com/user-attachments/assets/66e8b459-0ebf-4d3d-b917-913fdba91d9f
 
 ---
 
